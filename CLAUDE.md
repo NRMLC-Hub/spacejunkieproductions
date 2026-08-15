@@ -124,12 +124,19 @@ them — no browser needed. See `tools/make-icons.js` for the same technique.
   gets dragged off course, or quietly expires short, makes designating
   meaningless.
 
-- **The pulse is the answer to "they all arrived at once"**, which is the
-  failure state this game naturally produces. A ring expanding from Earth
-  that clears what it passes, on a ten-second cooldown so it is a decision
-  rather than a rhythm. It travels rather than clearing instantly, on
-  purpose — you watch it reach the thing you are worried about, and anything
-  arriving behind it is still your problem.
+- **How crowded the field feels is TRAVEL TIME divided by GAP** — how many
+  rocks are in transit at once. Not the count, and not the speed. Wave one
+  once ran 12.7 at once because a rock took nineteen seconds to cross while
+  another arrived every 1.5, and *slowing rocks down made it worse*, because
+  a slower rock lingers. Target roughly 2.5 at wave one rising to about 5 by
+  wave twenty. Tests pin all three. **Check this number before touching
+  `count`, `speed` or `gap` — changing one in isolation moves it in ways
+  that are not obvious.**
+- **The pulse is a bubble around Earth, not a board wipe.** `shock.range` is
+  130 against an arena of ~900. It is a last resort for something about to
+  hit; clearing the field would make it the strategy rather than the panic
+  button. It also travels rather than clearing instantly, so you watch it
+  reach what you were worried about.
 - **The felt slowness of shooting was FLIGHT TIME, not reload.** Missile
   speed is the responsiveness dial; `cooldown` barely matters. If it ever
   feels sluggish again, raise `missile.speed` before touching anything else.

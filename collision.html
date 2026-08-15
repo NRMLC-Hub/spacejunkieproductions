@@ -251,7 +251,10 @@ const CONFIG = {
      game produces, and there was no answer to it. A pulse from Earth clears
      the field it passes through — on a long enough cooldown that it is a
      decision, not a rhythm. */
-  shock:   { cooldown:600, speed:13, thickness:30 },
+  /* Range is deliberately small — a bubble hugging Earth, not a board wipe.
+     It is a last resort for something about to hit, not an answer to the
+     whole field, so it stays a panic button rather than a strategy. */
+  shock:   { cooldown:420, speed:4.5, thickness:26, range:130 },
   rock:    { sizes:{3:30, 2:19, 1:11},
              score:{3:25, 2:75, 1:225},           // a 3x ramp: finishing the
              damage:{3:18, 2:11, 1:6} },          // split chain is what pays
@@ -377,10 +380,22 @@ function waveSetup(n){
      The first two waves now send MEDIUMS, which split once rather than twice,
      so the field does not multiply the moment you engage. Size 3 arrives at
      wave three, by which point you know what the blast radius does. */
+  /* The dial that actually decides how crowded the field feels is not the
+     count and not the speed — it is TRAVEL TIME divided by GAP, which is how
+     many rocks are in transit at once.
+
+     Wave one used to run 12.7 at once: a rock took nineteen seconds to cross
+     and another arrived every 1.5. Slowing them down made it worse, because
+     a slower rock lingers. It is now about 2.5 at wave one, rising to about
+     5 by wave twenty — the slow increase that was asked for.
+
+     Waves are longer as well: roughly twenty seconds at wave one rather than
+     three, so a wave is something you hold rather than something you blink
+     through. */
   const size  = n < 3 ? 2 : 3;
-  const count = Math.min(1 + n, 18);
-  const speed = 0.70 + (n-1) * 0.08;
-  const gap   = Math.max(24, 95 - n*5);      // ticks between arrivals
+  const count = Math.min(4 + n, 24);
+  const speed = 1.05 + (n-1) * 0.055;
+  const gap   = Math.max(75, 320 - n*15);    // ticks between arrivals
 
   S.rocks = []; S.shots = []; S.bits = [];
   S.queue = count;
@@ -846,7 +861,7 @@ function update(){
       const d = Math.hypot(r.x-cx(), r.y-cy());
       if (Math.abs(d - S.shockR) < CONFIG.shock.thickness + r.r) splitRock(i);
     }
-    if (S.shockR > ARENA * 1.15) S.shockR = -1;
+    if (S.shockR > CONFIG.shock.range) S.shockR = -1;
   }
 
   /* --- particles --- */
@@ -1091,7 +1106,7 @@ function drawShip(sh){
 function drawPulse(){
   if (S.shockR < 0) return;
   // Fades as it expands, so it reads as spending itself rather than as a wall.
-  const t = 1 - Math.min(1, S.shockR / (ARENA * 1.15));
+  const t = 1 - Math.min(1, S.shockR / CONFIG.shock.range);
   stroke(2.4, 0.15 + t * 0.75);
   ctx.beginPath(); ctx.arc(cx(), cy(), S.shockR, 0, TAU); ctx.stroke();
   stroke(1, 0.10 + t * 0.30);

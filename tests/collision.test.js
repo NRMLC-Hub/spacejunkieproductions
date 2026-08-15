@@ -399,10 +399,10 @@ section('wave one is survivable, and waves turn over');
      once they split — at an Earth four of them would finish. */
   setup(1);
   const objects = size => size === 3 ? 7 : (size === 2 ? 3 : 1);
-  ok('wave one sends only a handful of rocks', S.queue <= 4, String(S.queue));
+  ok('wave one sends a handful of rocks', S.queue <= 6, String(S.queue));
   ok('and they are mediums, which split once rather than twice', S.waveSize === 2);
-  ok('so wave one is under a dozen objects even fully split',
-     S.queue * objects(S.waveSize) <= 12, String(S.queue * objects(S.waveSize)));
+  ok('so wave one stays under twenty objects even fully split',
+     S.queue * objects(S.waveSize) <= 20, String(S.queue * objects(S.waveSize)));
   setup(2);
   ok('wave two is still mediums', S.waveSize === 2);
   setup(3);
@@ -412,10 +412,26 @@ section('wave one is survivable, and waves turn over');
      Math.ceil(C.earth.integrity / C.rock.damage[3]) >= 5,
      Math.ceil(C.earth.integrity / C.rock.damage[3]) + ' hits');
 
+  /* The dial that decides how crowded the field feels is TRAVEL TIME divided
+     by GAP — how many rocks are in transit at once. Wave one used to run 12.7
+     of them: a rock took nineteen seconds to cross and another arrived every
+     1.5. Slowing rocks down made it worse, because a slower rock lingers. */
+  const arenaR = G.get('ARENA');
+  const inTransit = n => {
+    setup(n);
+    const mean = S.waveSpeed * 1.2;                       // rand(0.9,1.5) averages 1.2
+    return ((arenaR + C.spawnMargin - C.earth.r) / mean) / S.waveGap;
+  };
+  ok('wave one keeps only a couple of rocks in transit at once',
+     inTransit(1) <= 3.2, inTransit(1).toFixed(1));
+  ok('and it climbs slowly rather than jumping',
+     inTransit(10) > inTransit(1) && inTransit(10) <= 4.5, inTransit(10).toFixed(1));
+  ok('even late waves stay manageable', inTransit(20) <= 6, inTransit(20).toFixed(1));
+
   setup(1);
   const window1 = 40 + (S.queue - 1) * S.waveGap;
-  ok('the wave finishes arriving in about three seconds', window1 / 60 < 4,
-     (window1 / 60).toFixed(1) + 's');
+  ok('a wave is something you hold, not something you blink through',
+     window1 / 60 > 12 && window1 / 60 < 60, (window1 / 60).toFixed(0) + 's');
 
   /* The wave must turn over on what is ON THE FIELD, not on stragglers that
      have left it — gravity can capture a rock into an orbit it never escapes,
@@ -481,7 +497,10 @@ section('the pulse');
 
   // Ring everything around Earth, then fire it.
   S.rocks.length = 0; S.queue = 99; S.spawnTimer = 1e9;
-  for (const d of [200, 320, 480, 700]) S.rocks.push(mk(1, 1, { x: 800 + d, y: 450, vx: 0, vy: 0 }));
+  // Close in — that is all it reaches now.
+  for (const d of [70, 95, 118]) S.rocks.push(mk(1, 1, { x: 800 + d, y: 450, vx: 0, vy: 0 }));
+  const faraway = mk(1, 1, { x: 800 + 400, y: 450, vx: 0, vy: 0 });
+  S.rocks.push(faraway);
   const before = S.rocks.length;
   ok('firing it succeeds', pulse() === true);
   ok('and it goes on cooldown', S.shockCool === C.shock.cooldown);
@@ -493,12 +512,16 @@ section('the pulse');
   step();
   ok('it does not clear the far ones instantly', S.rocks.length > 0);
   let n = 0;
-  while (S.rocks.length && n < 200) { step(); n++; }
-  ok('but it clears everything in its path as it passes', S.rocks.length === 0,
-     n + ' ticks');
-  ok('and scores for them', S.score > 0);
-  while (S.shockR >= 0 && n < 400) { step(); n++; }
-  ok('the ring is spent once it passes the field', S.shockR === -1);
+  while (S.shockR >= 0 && n < 200) { step(); n++; }
+  ok('it clears what is close to Earth', S.rocks.length === 1, String(S.rocks.length));
+  /* The important half: it is a last resort for something about to hit, not
+     an answer to the whole field. A board wipe would make it the strategy
+     rather than the panic button. */
+  ok('and leaves the rest of the field alone', S.rocks[0] === faraway);
+  ok('its reach is close to Earth, not the arena',
+     C.shock.range < G.get('ARENA') / 4, C.shock.range + ' vs arena ' + Math.round(G.get('ARENA')));
+  ok('and scores for what it did clear', S.score > 0);
+  ok('the ring is spent once it reaches its range', S.shockR === -1);
 
   // Rocks arriving behind it are still your problem.
   const G2 = run({ audio: true, W: 1600, H: 900 });
@@ -507,8 +530,8 @@ section('the pulse');
   S2.rocks.length = 0; S2.queue = 99; S2.spawnTimer = 1e9;
   G2.get('firePulse')();
   for (let i = 0; i < 120; i++) st2();
-  S2.rocks.push(G2.get('makeRock')(1, 1, { x: 1100, y: 450, vx: -1, vy: 0 }));
-  for (let i = 0; i < 60; i++) st2();
+  S2.rocks.push(G2.get('makeRock')(1, 1, { x: 800 + 120, y: 450, vx: 0, vy: 0 }));
+  for (let i = 0; i < 30; i++) st2();
   ok('a rock arriving after the ring has passed survives it', S2.rocks.length === 1);
 
   // A fresh run gets a fresh charge.
@@ -524,7 +547,9 @@ section('the pulse');
   const html = fs2.readFileSync(path2.join(__dirname, '..', 'collision.html'), 'utf8');
   ok('there is a pulse button on touch', /data-k="shock"/.test(html));
   ok('and a key for it', /KeyE:'shock'/.test(html));
-  ok('the cooldown is long enough to be a decision', C.shock.cooldown >= 480,
+  // Long enough to be a decision, short enough to be worth having now that
+  // its reach is a bubble round Earth rather than the whole field.
+  ok('the cooldown is long enough to be a decision', C.shock.cooldown >= 300,
      (C.shock.cooldown / 60).toFixed(0) + 's');
 }
 
