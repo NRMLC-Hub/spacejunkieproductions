@@ -151,6 +151,10 @@ function buildSandbox(opts = {}) {
       insertAdjacentHTML: (_pos, html) => { el.innerHTML += html; },
       querySelectorAll: () => [],
       closest: () => null,
+      // Canvas is at the origin in the stub; world = client / VIEW.
+      getBoundingClientRect: () => ({ left:0, top:0,
+        width: el.clientWidth, height: el.clientHeight,
+        right: el.clientWidth, bottom: el.clientHeight, x:0, y:0 }),
       // Cached, so a test can inspect the same context the page drew through.
       getContext: () => (el._ctx || (el._ctx = makeCtx())),
       clientWidth: opts.W || 1000,
@@ -178,6 +182,7 @@ function buildSandbox(opts = {}) {
       return els.get(id);
     },
     querySelectorAll: () => [],
+    querySelector: () => makeEl('_query'),
     addEventListener: noopFn,
     activeElement: null,
   };

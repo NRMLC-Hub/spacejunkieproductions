@@ -162,12 +162,13 @@
     <div class="rule"></div>
     <div class="sub">
       Earth is at the centre. You are the only thing in orbit.<br>
-      <b>Nothing gets through.</b>
+      <b>Tap where you want the intercept.</b>
     </div>
     <div class="keys">
       <span>&#8592; &#8594; / A D</span><span>Orbit</span>
       <span>&#8593; &#8595; / W S</span><span>Altitude</span>
-      <span>Space</span><span>Launch</span>
+      <span>Click</span><span>Intercept</span>
+      <span>Space</span><span>Launch straight</span>
       <span>P</span><span>Pause</span>
       <span>M</span><span>Sound</span>
     </div>
@@ -196,12 +197,14 @@
       <div class="btn" data-k="left">&#8592;</div>
       <div class="btn" data-k="right">&#8594;</div>
     </div>
+    <!-- No FIRE button: you designate an intercept point by tapping the
+         field, which is both a better touch control and the whole reason
+         missiles feel different from the orbit. -->
     <div class="pad right">
       <div class="stack">
         <div class="btn" data-k="up">&#9650;</div>
         <div class="btn" data-k="down">&#9660;</div>
       </div>
-      <div class="btn fire" data-k="fire">FIRE</div>
     </div>
   </div>
 </div>
@@ -229,7 +232,7 @@
 const CONFIG = {
   earth:   { r:46, integrity:100, regen:8 },      // regen: repaired per wave cleared
   ship:    { r:9, orbitMin:96, orbitMax:250, angular:0.030, climb:1.5 },
-  missile: { speed:6.2, life:170, r:3, cooldown:11, max:4, blast:54 },
+  missile: { speed:6.2, life:170, r:3, cooldown:11, max:4, blast:54, turn:0.16 },
   rock:    { sizes:{3:30, 2:19, 1:11},
              score:{3:25, 2:75, 1:225},           // a 3x ramp: finishing the
              damage:{3:26, 2:15, 1:8} },          // split chain is what pays
@@ -300,8 +303,13 @@ function makeStars(){
 
 /* ------------------------------ spawning -------------------------------- */
 function makeShip(){
-  return { a:-Math.PI/2, orbit:(CONFIG.ship.orbitMin+CONFIG.ship.orbitMax)/2,
-           r:CONFIG.ship.r, cool:0, x:0, y:0 };
+  // Position is derived here as well as in update(). Leaving x/y at 0 until
+  // the first tick meant a tap in that window designated relative to the
+  // corner of the screen rather than to the station.
+  const a = -Math.PI/2;
+  const orbit = (CONFIG.ship.orbitMin + CONFIG.ship.orbitMax) / 2;
+  return { a, orbit, r:CONFIG.ship.r, cool:0,
+           x: cx() + Math.cos(a)*orbit, y: cy() + Math.sin(a)*orbit };
 }
 
 /* Rocks arrive from beyond the visible field, aimed near Earth but rarely
@@ -538,6 +546,9 @@ const touchLayer = document.getElementById('touch');
 if (matchMedia('(pointer: coarse)').matches){
   touchLayer.classList.add('show');
   document.getElementById('startPrompt').textContent = 'Tap to take station';
+  document.querySelector('#titleScreen .sub').innerHTML =
+    'Earth is at the centre. You are the only thing in orbit.<br>' +
+    '<b>Tap where you want the intercept.</b>';
   touchLayer.querySelectorAll('.btn').forEach(btn => {
     const k = btn.dataset.k;
     const on  = e => { e.preventDefault(); keys[k] = true;  btn.classList.add('on'); };
@@ -547,13 +558,18 @@ if (matchMedia('(pointer: coarse)').matches){
     btn.addEventListener('pointercancel', off);
     btn.addEventListener('pointerleave', off);
   });
-  // Bound to #stage: the overlays sit above the canvas and would swallow the
-  // tap before it ever reached it.
-  stage.addEventListener('pointerdown', e => {
-    if (e.target.closest('button, .btn')) return;
-    if (S.mode === 'title' || S.mode === 'over') newGame();
-  });
 }
+
+/* Bound to #stage rather than the canvas, because the overlays sit above the
+   canvas and would swallow the tap before it ever reached it. Registered for
+   every pointer type: designating an intercept with a mouse is the same verb
+   as with a thumb. */
+stage.addEventListener('pointerdown', e => {
+  if (e.target.closest('button, .btn')) return;
+  if (S.mode === 'title' || S.mode === 'over'){ newGame(); return; }
+  if (S.mode !== 'playing') return;
+  launch(fieldToWorld(e));
+});
 
 function togglePause(){
   if (S.mode === 'playing'){ S.mode = 'paused'; show('pauseScreen', true); }
@@ -617,6 +633,49 @@ function gameOver(){
   syncHud();
 }
 
+/* Two kinds of shot, and the difference is the point of the game.
+
+   Designate a point and you get a GUIDED interceptor: it steers to that spot
+   and detonates there, whatever is or is not in the way. It ignores gravity,
+   deliberately — a designated intercept has to actually arrive, or
+   designating stops meaning anything.
+
+   Fire with no target and you get a BALLISTIC shot straight out along your
+   radius, which gravity bends. It is the keyboard fallback and it is worse on
+   purpose: it is what the game was before you could aim.
+
+   Either way your orbit position still decides the angle of approach and how
+   long the flight takes, so taking station never stops mattering. */
+function launch(target){
+  const sh = S.ship;
+  if (!sh || sh.cool > 0 || S.shots.length >= CONFIG.missile.max) return false;
+  const a = target ? Math.atan2(target.y - sh.y, target.x - sh.x) : sh.a;
+  const m = {
+    x: sh.x + Math.cos(a)*12, y: sh.y + Math.sin(a)*12,
+    vx: Math.cos(a)*CONFIG.missile.speed, vy: Math.sin(a)*CONFIG.missile.speed,
+    life: CONFIG.missile.life, r: CONFIG.missile.r
+  };
+  if (target){
+    m.tx = target.x; m.ty = target.y;
+    /* Enough fuel to actually arrive from wherever the station happens to be,
+       with margin for the turn. A fixed lifetime meant designating a far
+       corner produced a missile that quietly expired short of it — worse than
+       not being able to designate it at all. */
+    const d = Math.hypot(target.x - sh.x, target.y - sh.y);
+    m.life = Math.ceil(d / CONFIG.missile.speed * 1.7) + 45;
+  }
+  S.shots.push(m);
+  sh.cool = CONFIG.missile.cooldown;
+  SFX.launch();
+  return true;
+}
+
+// Screen coordinates to world units. VIEW is pixels per world unit.
+function fieldToWorld(ev){
+  const rect = canvas.getBoundingClientRect();
+  return { x:(ev.clientX - rect.left) / VIEW, y:(ev.clientY - rect.top) / VIEW };
+}
+
 /* ------------------------------- gravity --------------------------------
    Earth attracts everything free. This is the same shared rule SINGULARITY
    uses for its black holes, pointed the other way round: there it is the
@@ -651,24 +710,33 @@ function update(){
     sh.y = cy() + Math.sin(sh.a) * sh.orbit;
     if (sh.cool > 0) sh.cool--;
 
-    if (keys.fire && sh.cool === 0 && S.shots.length < CONFIG.missile.max){
-      // Launched radially outward: you cannot aim, only take station. That
-      // constraint IS the game — getting between Earth and the threat.
-      S.shots.push({
-        x: sh.x + Math.cos(sh.a)*12, y: sh.y + Math.sin(sh.a)*12,
-        vx: Math.cos(sh.a)*CONFIG.missile.speed,
-        vy: Math.sin(sh.a)*CONFIG.missile.speed,
-        life: CONFIG.missile.life, r: CONFIG.missile.r
-      });
-      sh.cool = CONFIG.missile.cooldown;
-      SFX.launch();
-    }
+    if (keys.fire) launch(null);
   }
 
-  /* --- missiles: gravity bends these too, so long shots curve --- */
+  /* --- missiles --- */
   for (let i=S.shots.length-1;i>=0;i--){
     const b = S.shots[i];
-    applyGravity(b, 0.45);
+    if (b.tx !== undefined){
+      const dx = b.tx - b.x, dy = b.ty - b.y;
+      // Detonate on arrival, before it can overshoot the designated point.
+      if (Math.hypot(dx, dy) <= CONFIG.missile.speed){
+        const tx = b.tx, ty = b.ty;
+        S.shots.splice(i,1);
+        detonate(tx, ty);
+        continue;
+      }
+      // Steer, rather than snap, so a launch from the far side of the orbit
+      // arcs across and you can watch it commit.
+      const want = Math.atan2(dy, dx), cur = Math.atan2(b.vy, b.vx);
+      let d = want - cur;
+      while (d >  Math.PI) d -= TAU;
+      while (d < -Math.PI) d += TAU;
+      const a = cur + clamp(d, -CONFIG.missile.turn, CONFIG.missile.turn);
+      b.vx = Math.cos(a)*CONFIG.missile.speed;
+      b.vy = Math.sin(a)*CONFIG.missile.speed;
+    } else {
+      applyGravity(b, 0.45);      // ballistic: gravity bends the straight shot
+    }
     b.x += b.vx; b.y += b.vy;
     const far = Math.hypot(b.x-cx(), b.y-cy());
     if (--b.life <= 0 || far > ARENA*1.4) S.shots.splice(i,1);
@@ -901,6 +969,18 @@ function drawShots(){
     ctx.moveTo(b.x, b.y);
     ctx.lineTo(b.x - b.vx*1.9, b.y - b.vy*1.9);
     ctx.stroke();
+    // Show where a designated shot is going, so the commitment is legible.
+    if (b.tx !== undefined){
+      stroke(1, .45);
+      const s = 8;
+      ctx.beginPath();
+      ctx.moveTo(b.tx-s, b.ty); ctx.lineTo(b.tx-s*0.35, b.ty);
+      ctx.moveTo(b.tx+s*0.35, b.ty); ctx.lineTo(b.tx+s, b.ty);
+      ctx.moveTo(b.tx, b.ty-s); ctx.lineTo(b.tx, b.ty-s*0.35);
+      ctx.moveTo(b.tx, b.ty+s*0.35); ctx.lineTo(b.tx, b.ty+s);
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(b.tx, b.ty, s*0.5, 0, TAU); ctx.stroke();
+    }
   }
 }
 

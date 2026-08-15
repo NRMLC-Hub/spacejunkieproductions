@@ -90,6 +90,104 @@ section('missiles');
   ok('missiles travel outward from Earth', after > before, before + ' -> ' + after);
 }
 
+section('tap to designate an intercept');
+{
+  const G = run({ audio: true, W: 1600, H: 900 });
+  launch(G);
+  const S = G.get('S'), C = G.get('CONFIG'), step = G.get('step');
+  const fire = G.get('launch');
+
+  // No target: ballistic, straight out along the radius, bent by gravity.
+  S.shots.length = 0; S.ship.cool = 0;
+  fire(null);
+  ok('firing with no target gives a ballistic shot', S.shots[0].tx === undefined);
+
+  // With a target: guided, and it carries the designated point with it.
+  S.shots.length = 0; S.ship.cool = 0;
+  S.ship.a = -Math.PI / 2;                       // station directly above Earth
+  fire({ x: 500, y: 700 });                      // designate down and to the left
+  const m = S.shots[0];
+  ok('designating carries the point on the missile', m.tx === 500 && m.ty === 700);
+  ok('and it launches toward the point, not along the radius',
+     m.vx < 0 && m.vy > 0, m.vx.toFixed(2) + ',' + m.vy.toFixed(2));
+
+  // It must actually arrive. A designated intercept that gravity drags off
+  // course would make designating meaningless, so guided shots ignore it.
+  S.rocks.length = 0; S.queue = 0;
+  let ticks = 0;
+  while (S.shots.length && ticks < 400) { step(); ticks++; }
+  ok('a designated shot reaches its point and detonates', ticks < 400, ticks + ' ticks');
+
+  // Detonating at the point clears what is there, whatever the flight path.
+  const G2 = run({ audio: true, W: 1600, H: 900 });
+  launch(G2);
+  const S2 = G2.get('S'), mk2 = G2.get('makeRock'), st2 = G2.get('step');
+  S2.rocks.length = 0; S2.queue = 0; S2.shots.length = 0; S2.ship.cool = 0;
+  S2.rocks.push(mk2(1, 1, { x: 1150, y: 450, vx: 0, vy: 0 }));
+  G2.get('launch')({ x: 1150, y: 450 });
+  for (let i = 0; i < 400 && S2.rocks.length; i++) st2();
+  ok('the designated point is where it goes off', S2.rocks.length === 0);
+
+  // Cooldown and the in-flight cap still apply to designated shots.
+  const G3 = run({ audio: true, W: 1600, H: 900 });
+  launch(G3);
+  const S3 = G3.get('S'), C3 = G3.get('CONFIG');
+  S3.shots.length = 0; S3.ship.cool = 0;
+  ok('the first designation launches', G3.get('launch')({ x: 900, y: 300 }) === true);
+  ok('a second one inside the cooldown does not',
+     G3.get('launch')({ x: 900, y: 300 }) === false);
+  ok('nothing extra was queued', S3.shots.length === 1);
+}
+
+section('pointer input');
+{
+  const G = run({ audio: true, W: 1600, H: 900 });
+  const stage = G.el('stage');
+  const S = G.get('S');
+
+  // On the title screen a tap takes station rather than firing.
+  stage.fire('pointerdown', {
+    clientX: 400, clientY: 400,
+    target: { closest: () => null }, preventDefault() {},
+  });
+  ok('a tap on the title screen takes station', S.mode === 'playing');
+  ok('and does not launch anything', S.shots.length === 0);
+
+  // In play it designates, converting screen pixels to world units.
+  S.ship.cool = 0;
+  stage.fire('pointerdown', {
+    clientX: 400, clientY: 400,
+    target: { closest: () => null }, preventDefault() {},
+  });
+  ok('a tap in play designates an intercept', S.shots.length === 1);
+  ok('at the world point under the finger',
+     S.shots[0].tx === 400 && S.shots[0].ty === 400,
+     S.shots[0].tx + ',' + S.shots[0].ty);
+
+  // A tap on an orbit control is the control's business, not a launch.
+  S.shots.length = 0; S.ship.cool = 0;
+  stage.fire('pointerdown', {
+    clientX: 40, clientY: 700,
+    target: { closest: sel => (sel.includes('.btn') ? {} : null) }, preventDefault() {},
+  });
+  ok('a tap on a control button does not launch', S.shots.length === 0);
+
+  // Paused, nothing fires.
+  S.mode = 'paused'; S.ship.cool = 0;
+  stage.fire('pointerdown', {
+    clientX: 400, clientY: 400,
+    target: { closest: () => null }, preventDefault() {},
+  });
+  ok('a tap while paused does nothing', S.shots.length === 0);
+
+  const fs2 = require('fs'), path2 = require('path');
+  const html = fs2.readFileSync(path2.join(__dirname, '..', 'collision.html'), 'utf8');
+  ok('the FIRE button is gone; the field is the trigger',
+     !/data-k="fire"/.test(html));
+  ok('the orbit and altitude controls remain',
+     /data-k="left"/.test(html) && /data-k="up"/.test(html));
+}
+
 section('rocks fall toward Earth and can be shot');
 {
   const G = run({ audio: true, W: 1600, H: 900 });
