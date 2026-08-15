@@ -87,9 +87,11 @@ function makeAudioContext(log) {
    observe the ducked state and then end the utterance itself. */
 function makeSpeech(log) {
   const voices = [
-    { name: 'Amelie', lang: 'fr-FR' },
-    { name: 'Samantha', lang: 'en-US' },
-    { name: 'Daniel', lang: 'en-GB' },
+    { name: 'Amelie', lang: 'fr-FR', localService: true },
+    { name: 'Samantha', lang: 'en-US', localService: true },
+    // Chrome's Google voices are synthesised on a server and truncate.
+    { name: 'Google UK English Male', lang: 'en-GB', localService: false },
+    { name: 'Daniel', lang: 'en-GB', localService: true },
   ];
   return {
     last: null,

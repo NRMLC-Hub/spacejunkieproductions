@@ -146,6 +146,17 @@ the browser's speech synthesis.
   transmission. Both go through `applyMaster()`. Setting `master.gain`
   directly from either one reintroduces the bug where unmuting mid-briefing
   cancels the duck.
+- **The watchdog asks the engine, it does not guess.** `VOICE.tick()` closes
+  the channel as soon as `synth.speaking` goes false; the tick count is only
+  a hard cap. It used to guess the duration from word count and got it wrong:
+  `text.split(/s+/)` — a backslash lost in a shell-escaped edit — split on
+  the letter "s", counted a ten-word line as two, and cancelled every briefing
+  at 2.3 seconds. A test now runs four seconds with the engine reporting it is
+  speaking and fails if anything cancels.
+- **Prefer local voices.** `localService === false` means the voice is
+  synthesised on a server; Chrome's Google voices are remote and are well
+  known for truncating mid-sentence. Tiers: local en-GB, local en, any en-GB,
+  any en, anything.
 - **There is a watchdog, and it is load-bearing.** `speechSynthesis` drops
   `onend` often enough to matter, and a dropped one would leave the static
   bed open for the rest of the run. `VOICE.tick()` is driven from `step()`

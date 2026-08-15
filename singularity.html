@@ -880,7 +880,8 @@ const VOICE = (() => {
   const KEY = 'sj.voice.v1';
   const synth = typeof speechSynthesis !== 'undefined' ? speechSynthesis : null;
   let on = true, voice = null, picked = false;
-  let guard = 0;   // ticks until the channel is forced shut, see tick()
+  let guard = 0;   // hard cap, in ticks, before the channel is forced shut
+  let grace = 0;   // ticks to wait for the engine to actually start speaking
   let held = null; // see say(): a dropped utterance gets collected mid-sentence
   try { const v = localStorage.getItem(KEY); if (v !== null) on = v === '1'; } catch (e) {}
 
@@ -892,12 +893,23 @@ const VOICE = (() => {
     const all = synth.getVoices();
     if (!all || !all.length) return;
     picked = true;
-    const en = all.filter(v => /^en\b|^en[-_]/i.test(v.lang || ''));
-    // British first, by preference — it suits a comms officer, and it is the
-    // one Martin picked out. Falls back to any English, then to anything.
-    const gb = all.filter(v => /^en[-_]GB/i.test(v.lang || ''));
-    const pool = gb.length ? gb : (en.length ? en : all);
-    voice = pool.find(v => /daniel|arthur|oliver|google uk english male|microsoft (george|ryan|hazel)/i.test(v.name || ''))
+    const isEn = v => /^en\b|^en[-_]/i.test(v.lang || '');
+    const isGB = v => /^en[-_]GB/i.test(v.lang || '');
+    // localService === false means the voice is synthesised on a server.
+    // Chrome's Google voices are remote and are well known for truncating
+    // mid-sentence, so a local voice is preferred on reliability grounds,
+    // not taste. undefined is treated as local.
+    const isLocal = v => v.localService !== false;
+    // British first — it suits a comms officer, and it is the one Martin
+    // picked out. Each tier falls through to the next if it is empty.
+    const pool = [
+      all.filter(v => isGB(v) && isLocal(v)),
+      all.filter(v => isEn(v) && isLocal(v)),
+      all.filter(isGB),
+      all.filter(isEn),
+      all,
+    ].find(t => t.length) || all;
+    voice = pool.find(v => /daniel|arthur|oliver|george|ryan|hazel/i.test(v.name || ''))
          || pool.find(v => /male/i.test(v.name || ''))
          || pool[0];
   }
@@ -917,17 +929,27 @@ const VOICE = (() => {
       return on;
     },
     stop(){
-      guard = 0; held = null;
+      guard = 0; grace = 0; held = null;
       SFX.duck(false);          // never leave the game quiet after a cancel
       if (!synth) return;
       try { synth.cancel(); } catch (e) {}
     },
 
-    /* speechSynthesis is notorious for dropping onend — a hung utterance
-       would leave the static bed open for the rest of the run. Counted in
-       ticks like every other timed value in this file, and generous: it is a
-       backstop, not the normal path. */
-    tick(){ if (guard > 0 && --guard === 0) this.stop(); },
+    /* speechSynthesis drops onend often enough to matter, and a dropped one
+       would leave the game ducked for the rest of the run.
+
+       Ask the engine whether it is still speaking rather than guessing from
+       word count — guessing is what broke this before. The tick counter is
+       only a hard cap now, and it is deliberately generous. `grace` covers
+       the gap between speak() being called and the engine actually starting,
+       during which speaking is still false. */
+    tick(){
+      if (guard <= 0) return;
+      guard--;
+      if (grace > 0){ grace--; return; }
+      if (synth && !synth.speaking && !synth.pending){ this.stop(); return; }
+      if (guard === 0) this.stop();
+    },
     say(text){
       if (!synth || !on || SFX.muted) return false;
       try {
@@ -941,13 +963,17 @@ const VOICE = (() => {
         // Brisk. A comms officer reads faster than a narrator, and a slow
         // line is still being read out while the player is already dodging.
         u.rate = 1.2; u.pitch = 0.9; u.volume = 0.8;
-        const close = () => { guard = 0; held = null; SFX.duck(false); };
+        const close = () => { guard = 0; grace = 0; held = null; SFX.duck(false); };
         u.onend = close; u.onerror = close;
         // Opened here rather than on onstart, so the squelch pre-rolls the
         // first syllable instead of landing on top of it.
         held = u;   // Chrome collects a dropped utterance mid-sentence
         SFX.duck(true); SFX.squelch(true);
-        guard = Math.min(900, 90 + text.split(/s+/).length * 24);
+        // NOTE the backslash. /s+/ splits on the letter "s" — that typo made
+        // this a 2.3 second timer on a ten-word line, and the watchdog
+        // cancelled the speech mid-sentence every single time.
+        guard = Math.min(1800, 180 + text.split(/\s+/).length * 40);
+        grace = 60;
         synth.speak(u);
         return true;
       } catch (e){ this.stop(); return false; }

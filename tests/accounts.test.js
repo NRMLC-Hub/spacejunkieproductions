@@ -407,7 +407,10 @@ section('sector transmissions');
 
   // An English voice, not whichever happens to be first. The stub lists a
   // French voice ahead of two English ones.
-  ok('an English voice is chosen over the first in the list',
+  /* A local British voice, over both the first in the list and the remote
+     Google one. localService === false means the voice is synthesised on a
+     server, and Chrome's remote voices truncate mid-sentence. */
+  ok('a local British voice is chosen over a remote one',
      V.get('VOICE').voiceName === 'Daniel', String(V.get('VOICE').voiceName));
 
   // Ducking: the game drops under a transmission and comes back after it.
@@ -480,10 +483,38 @@ section('sector transmissions');
 
   // speechSynthesis is notorious for dropping onend. The watchdog is the only
   // thing standing between that and static running for the rest of the run.
+  /* REGRESSION. The watchdog cap was computed with text.split(/s+/) — the
+     backslash lost in a shell-escaped edit — so it split on the letter "s"
+     and counted a ten-word line as two words. That made it a 2.3 second
+     timer, and it cancelled every briefing mid-sentence. This asserts the
+     channel survives four seconds while the engine reports it is speaking. */
+  const Keep = run({ audio: true, voice: true });
+  Keep.fireGlobal('keydown', { code: 'Space', key: ' ', preventDefault() {}, repeat: false });
+  Keep.speech.length = 0;
+  for (let i = 0; i < 240; i++) Keep.get('step')();
+  ok('a briefing is not cut off while the engine is still speaking',
+     !Keep.speech.includes('cancel'), Keep.speech.join(' | '));
+  ok('and the game stays ducked for its duration',
+     Keep.masterGain().gain.value < 0.2, String(Keep.masterGain().gain.value));
+
+  // The cap scales with the length of the line, generously.
+  const brf = Keep.get('sectorBrief');
+  ok('the watchdog cap comfortably outlasts the line it guards',
+     Math.min(1800, 180 + brf(1).split(/\s+/).length * 40) / 60 > 6,
+     (Math.min(1800, 180 + brf(1).split(/\s+/).length * 40) / 60).toFixed(1) + 's');
+
+  // The engine going quiet closes the channel without waiting for the cap.
+  const Quiet = run({ audio: true, voice: true });
+  Quiet.fireGlobal('keydown', { code: 'Space', key: ' ', preventDefault() {}, repeat: false });
+  Quiet.synth.speaking = false;                  // engine stopped, onend never came
+  for (let i = 0; i < 120; i++) Quiet.get('step')();
+  ok('the channel closes as soon as the engine stops, cap or no cap',
+     Quiet.masterGain().gain.value > 0.3, String(Quiet.masterGain().gain.value));
+
   const Wd = run({ audio: true, voice: true });
   Wd.fireGlobal('keydown', { code: 'Space', key: ' ', preventDefault() {}, repeat: false });
   ok('the game is ducked while the transmission runs', Wd.masterGain().gain.value < 0.2);
-  for (let i = 0; i < 1000; i++) Wd.get('step')();     // onend never arrives
+  for (let i = 0; i < 2000; i++) Wd.get('step')();     // onend never arrives
   ok('a hung utterance is force-closed by the watchdog',
      Wd.masterGain().gain.value > 0.3, String(Wd.masterGain().gain.value));
 }
