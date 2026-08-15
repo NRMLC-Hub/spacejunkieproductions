@@ -27,8 +27,11 @@ function harvestIds(html) {
 function makeCtx() {
   const noop = () => {};
   const c = {};
-  for (const k of ['setTransform','fillRect','beginPath','arc','fill','stroke','moveTo','lineTo',
+  for (const k of ['fillRect','beginPath','arc','fill','stroke','moveTo','lineTo',
                    'closePath','save','restore','translate','rotate','scale','setLineDash']) c[k] = noop;
+  // Recorded so tests can assert the world-to-screen transform.
+  c._transform = null;
+  c.setTransform = (...a) => { c._transform = a; };
   c.lineJoin = c.lineCap = c.fillStyle = c.strokeStyle = '';
   c.lineWidth = 1;
   return c;
@@ -76,7 +79,8 @@ function buildSandbox(opts = {}) {
       insertAdjacentHTML: (_pos, html) => { el.innerHTML += html; },
       querySelectorAll: () => [],
       closest: () => null,
-      getContext: () => makeCtx(),
+      // Cached, so a test can inspect the same context the page drew through.
+      getContext: () => (el._ctx || (el._ctx = makeCtx())),
       clientWidth: opts.W || 1000,
       clientHeight: opts.H || 700,
       width: 0, height: 0,

@@ -193,6 +193,52 @@ section('every element the script reaches for exists in the markup');
   ok('a guest game-over says so', Z.el('overPilot').innerHTML.includes('guest'));
 }
 
+section('the world scales to the screen');
+{
+  const desk = run({ W: 1600, H: 900 });
+  ok('a large screen is untouched: one world unit per CSS pixel', desk.get('VIEW') === 1);
+  ok('a large world matches the viewport exactly',
+     desk.get('W') === 1600 && desk.get('H') === 900);
+
+  const phone = run({ W: 390, H: 750 });
+  const v = phone.get('VIEW'), pw = phone.get('W'), ph = phone.get('H');
+  ok('a phone zooms the camera out', v < 1);
+  ok('the short axis normalises to REF_MIN world units', Math.round(Math.min(pw, ph)) === 700);
+  ok('a phone gets over 3x the room to travel', (pw * ph) / (390 * 750) > 3,
+     ((pw * ph) / (390 * 750)).toFixed(2) + 'x');
+
+  // The actual complaint: a single hole used to reach across the whole screen.
+  const reach = phone.get('CONFIG').hole.reach;
+  ok('before scaling, one hole spanned more than the screen width',
+     (2 * reach) / 390 > 1.4);
+  ok('after scaling, one hole covers well under the world width',
+     (2 * reach) / pw < 0.9, ((2 * reach) / pw).toFixed(2) + ' of world width');
+
+  phone.get('levelSetup')(9);
+  ok('a phone world is capped to fewer black holes', phone.get('S').holes.length <= 2,
+     'got ' + phone.get('S').holes.length);
+  desk.get('levelSetup')(9);
+  ok('a desktop world still gets the full four', desk.get('S').holes.length === 4);
+
+  // Strokes are specified in CSS pixels and divided by VIEW, so a vector line
+  // is the same weight on screen no matter how far the camera is zoomed out.
+  const ctx = phone.el('game')._ctx;
+  phone.get('stroke')(1.5, 1);
+  ok('strokes hold their on-screen weight at any zoom',
+     Math.abs(ctx.lineWidth * v - 1.5) < 1e-9, 'got ' + (ctx.lineWidth * v));
+
+  ok('the draw transform maps world units onto the canvas',
+     JSON.stringify(ctx._transform) === JSON.stringify([v, 0, 0, v, 0, 0]),
+     JSON.stringify(ctx._transform));
+
+  // Stars are counted from screen area, not world area, or a zoomed-out world
+  // would pack the same field into a third of the visible space.
+  const perScreenPx = phone.get('S').stars.length / (390 * 750);
+  const deskPerPx = desk.get('S').stars.length / (1600 * 900);
+  ok('starfield density is per screen area, not per world area',
+     Math.abs(perScreenPx - deskPerPx) / deskPerPx < 0.05);
+}
+
 section('double-tap zoom guard (iOS ignores user-scalable=no)');
 {
   const T = run({ media: { '(pointer: coarse)': true } });

@@ -344,15 +344,35 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-let W = 0, H = 0, DPR = 1;
+/* ---------------------- world units vs screen pixels ---------------------
+   W and H are the world, measured in WORLD UNITS, and every length in CONFIG
+   is in the same units. VIEW is how many CSS pixels one world unit occupies.
+
+   Why this exists: the world used to be exactly the viewport in CSS pixels,
+   which made every hazard enormous on a phone. A rock of radius 34 is 1.8% of
+   a 1920px desktop but 8.7% of a 390px phone, and hole.reach of 290 spanned
+   nearly the whole width of a phone screen — one black hole and there was
+   nowhere left to fly. Normalising the SHORT axis to REF_MIN world units
+   gives a phone the same amount of room to travel as a desktop, and the same
+   proportions, by zooming the camera out instead of shrinking the world.
+
+   VIEW never exceeds 1, so a large screen is untouched: it still gets one
+   world unit per CSS pixel and plays exactly as it did.                    */
+const REF_MIN = 700;
+let W = 0, H = 0, DPR = 1, VIEW = 1;
+
 function resize(){
   DPR = Math.min(window.devicePixelRatio || 1, 2);
-  W = canvas.clientWidth; H = canvas.clientHeight;
-  canvas.width  = Math.floor(W * DPR);
-  canvas.height = Math.floor(H * DPR);
-  ctx.setTransform(DPR,0,0,DPR,0,0);
+  const cw = canvas.clientWidth, ch = canvas.clientHeight;
+  canvas.width  = Math.floor(cw * DPR);
+  canvas.height = Math.floor(ch * DPR);
+  VIEW = Math.max(0.45, Math.min(1, Math.min(cw, ch) / REF_MIN));
+  W = cw / VIEW; H = ch / VIEW;
+  applyTransform();
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 }
+// draw() resets the transform every frame, so both places go through here.
+function applyTransform(){ ctx.setTransform(DPR*VIEW, 0, 0, DPR*VIEW, 0, 0); }
 // Stars are laid out for a specific W/H, so they have to be rebuilt when it
 // changes — otherwise they stay bunched in the old rectangle.
 window.addEventListener('resize', () => { resize(); makeStars(); });
@@ -402,7 +422,9 @@ const S = {
 /* ------------------------------ starfield ------------------------------- */
 function makeStars(){
   S.stars = [];
-  const n = Math.round((W*H)/9000);
+  // Count from the area actually on screen, not the world area — otherwise
+  // zooming out on a phone packs the same starfield into a third of the space.
+  const n = Math.round((W*VIEW * H*VIEW)/9000);
   for (let i=0;i<n;i++) S.stars.push({x:rand(0,W), y:rand(0,H), z:rand(.25,1)});
 }
 
@@ -481,8 +503,17 @@ function burst(x, y, count, spread=2.6, life=34){
 function levelSetup(n){
   const rockCount  = Math.min(3 + n, 11);
   const rockSpeed  = 1 + (n-1) * 0.12;
-  const holeCount  = n < 2 ? 0 : Math.min(1 + Math.floor((n-2)/2), 4);
   const alienCount = n < 3 ? 0 : Math.min(Math.floor((n-1)/2), 6);
+
+  /* Cap holes by how much of the world ends up inside one's pull. Each covers
+     a disc of radius hole.reach, and a raw count is the wrong dial: a portrait
+     phone and a desktop have very different areas to fill, and four holes that
+     read as hazards on a monitor leave a phone with nowhere to fly. Holding
+     the covered fraction at 75% gives a large screen the same four it always
+     had, and a phone two. */
+  const holeFootprint = Math.PI * CONFIG.hole.reach * CONFIG.hole.reach;
+  const holeRoom = Math.max(1, Math.floor((W * H * 0.75) / holeFootprint));
+  const holeCount = n < 2 ? 0 : Math.min(1 + Math.floor((n-2)/2), 4, holeRoom);
 
   S.rocks = []; S.aliens = []; S.alienShots = []; S.bullets = []; S.holes = []; S.bits = [];
   for (let i=0;i<holeCount;i++) S.holes.push(makeHole());
@@ -1134,12 +1165,16 @@ function killShip(){
 }
 
 /* ------------------------------ render ---------------------------------- */
+/* `width` is in CSS pixels, not world units. Dividing by VIEW keeps every
+   line the same weight on screen at any zoom — a vector game whose strokes
+   thinned out on a phone would read as washed out. */
 function stroke(width, alpha){
-  ctx.lineWidth = width; ctx.strokeStyle = alpha < 1 ? `rgba(255,255,255,${alpha})` : '#fff';
+  ctx.lineWidth = width / VIEW;
+  ctx.strokeStyle = alpha < 1 ? `rgba(255,255,255,${alpha})` : '#fff';
 }
 
 function draw(){
-  ctx.setTransform(DPR,0,0,DPR,0,0);
+  applyTransform();
   ctx.fillStyle = '#000';
   ctx.fillRect(0,0,W,H);
 
@@ -1172,7 +1207,8 @@ function drawStars(){
     }
     if (br <= 0.02) continue;
     ctx.fillStyle = `rgba(255,255,255,${br*0.55})`;
-    ctx.fillRect(x, y, s.z > .75 ? 2 : 1, s.z > .75 ? 2 : 1);
+    const px = (s.z > .75 ? 2 : 1) / VIEW;   // hold stars at a constant screen size
+    ctx.fillRect(x, y, px, px);
   }
 }
 

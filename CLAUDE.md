@@ -42,6 +42,30 @@ This file is the working context.
 - **Correct the record in files, not just in chat.** Findings that only live in
   a conversation are lost when the session ends.
 
+## World units are not CSS pixels
+
+`W` and `H` are the world in **world units**, and every length in `CONFIG` —
+radii, `hole.reach`, speeds — is in the same units. `VIEW` is how many CSS
+pixels one world unit occupies, set in `resize()` and capped at 1.
+
+The short axis is normalised to `REF_MIN` (700) world units, so a phone gets
+the same room to travel as a desktop by zooming the camera out rather than by
+shrinking the world. Before this, the world was the viewport in CSS pixels and
+`hole.reach` of 290 spanned nearly a whole phone screen — one black hole and
+there was nowhere left to fly. Martin reported exactly that from a phone.
+
+Consequences to respect:
+
+- **Lengths passed to `stroke()` are CSS pixels, not world units** — it divides
+  by `VIEW` so vector lines keep their weight at any zoom. Same for star size.
+- `draw()` must go through `applyTransform()`, never `ctx.setTransform(DPR,…)`.
+- Anything counted per *screen* area rather than per *world* area (the
+  starfield) must multiply by `VIEW²`.
+- **Do not add a device check.** Cap hazards by what the world can hold, the
+  way `levelSetup()` caps holes by the fraction of world area inside a hole's
+  pull. That rule correctly catches a portrait tablet too, which a phone check
+  would miss.
+
 ## The artifact rule
 
 Inherited from the parent project and it applies here too:

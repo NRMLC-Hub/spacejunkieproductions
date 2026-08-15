@@ -67,7 +67,7 @@ methods, without changing any call site.
 node tests/accounts.test.js
 ```
 
-94 assertions, no browser and no automation. The harness extracts the inline
+115 assertions, no browser and no automation. The harness extracts the inline
 `<script>` block and runs it in a Node `vm` context against stub DOM objects.
 
 It covers signup, sign-in, recovery and scoring; asserts that no password or
@@ -91,6 +91,11 @@ the loop and no browser automation. Layout on hardware needs a human to look.
 Worth knowing before editing:
 
 - `CONFIG` at the top holds every tuning value. Change behaviour there first.
+- **`W` and `H` are world units, not CSS pixels.** `VIEW` is how many pixels one
+  world unit occupies; the short axis is normalised to `REF_MIN` so a phone gets
+  the same room to travel as a desktop, by zooming the camera out rather than
+  shrinking the world. `VIEW` is capped at 1, so large screens are unchanged.
+  Lengths given to `stroke()` are CSS pixels and get divided by `VIEW`.
 - `S` is the single game-state object. `update()` → `collisions()` → `draw()`.
 - The simulation runs on a **fixed 1/60s timestep** with an accumulator in
   `loop()`. Rendering happens once per animation frame; simulation only advances
