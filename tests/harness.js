@@ -93,10 +93,17 @@ function makeSpeech(log) {
   ];
   return {
     last: null,
+    speaking: false,
+    pending: false,
     onvoiceschanged: null,
     getVoices: () => voices,
-    speak(u) { log.push('speak:' + u.text); this.last = u; if (u.onstart) u.onstart(); },
-    cancel() { log.push('cancel'); },
+    speak(u) {
+      log.push('speak:' + u.text); this.last = u; this.speaking = true;
+      if (u.onstart) u.onstart();
+    },
+    cancel() { log.push('cancel'); this.speaking = false; },
+    // What the page calls when the utterance really finishes.
+    finish() { this.speaking = false; if (this.last && this.last.onend) this.last.onend(); },
   };
 }
 

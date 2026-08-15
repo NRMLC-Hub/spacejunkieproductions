@@ -414,13 +414,20 @@ section('sector transmissions');
   const master = V.masterGain();
   const under = master.gain.value;
   ok('the game ducks under a transmission', under < 0.2, String(under));
-  V.synth.last.onend();
+  V.synth.finish();
   ok('the game comes back up afterwards', master.gain.value > 0.3, String(master.gain.value));
 
   // A fast sector clear must not stack briefings on top of each other.
+  // Chrome swallows an utterance spoken in the same tick as a cancel, so the
+  // cancel only fires when something is genuinely still speaking.
   V.speech.length = 0;
-  V.get('startLevel')(2);
-  ok('a new briefing cancels the previous one', V.speech[0] === 'cancel', V.speech.join(" | "));
+  V.get('startLevel')(2);                    // nothing speaking: no cancel
+  ok('no needless cancel when the channel is idle',
+     !V.speech.includes('cancel'), V.speech.join(" | "));
+  V.speech.length = 0;
+  V.get('startLevel')(3);                    // sector 2 still speaking: cancel
+  ok('a new briefing cancels one still in progress',
+     V.speech[0] === 'cancel', V.speech.join(" | "));
 
   // Muting kills speech too — one control for "be quiet".
   V.speech.length = 0;
@@ -459,24 +466,26 @@ section('sector transmissions');
      built around it: a squelch click and a static bed on a bus that is muted
      but never ducked, or it would vanish under the very duck it accompanies. */
   const R = run({ audio: true, voice: true });
+  const idle = R.audioCtx.liveVoices;          // the gravity drone runs forever
   R.fireGlobal('keydown', { code: 'Space', key: ' ', preventDefault() {}, repeat: false });
-  const liveDuring = R.audioCtx.liveVoices;
-  ok('a transmission opens a static bed', liveDuring > 0);
+  ok('a transmission fires a squelch click',
+     R.audio.filter(x => x.endsWith(':start')).length > 0);
   ok('speech is brisk, not narrated', R.synth.last.rate >= 1.1, String(R.synth.last.rate));
-  R.synth.last.onend();
-  ok('the channel closes when the transmission ends',
-     R.audioCtx.liveVoices < liveDuring, R.audioCtx.liveVoices + ' vs ' + liveDuring);
-  ok('the game comes back up when the channel closes', R.masterGain().gain.value > 0.3);
+  ok('speech is not at full volume', R.synth.last.volume < 0.9, String(R.synth.last.volume));
+  // The static bed was removed. Nothing may be left running under the voice.
+  ok('no held voice is left open under the transmission',
+     R.audioCtx.liveVoices <= idle + 1, R.audioCtx.liveVoices + ' vs idle ' + idle);
+  R.synth.finish();
+  ok('the game comes back up when the transmission ends', R.masterGain().gain.value > 0.3);
 
   // speechSynthesis is notorious for dropping onend. The watchdog is the only
   // thing standing between that and static running for the rest of the run.
   const Wd = run({ audio: true, voice: true });
   Wd.fireGlobal('keydown', { code: 'Space', key: ' ', preventDefault() {}, repeat: false });
-  const stuck = Wd.audioCtx.liveVoices;
+  ok('the game is ducked while the transmission runs', Wd.masterGain().gain.value < 0.2);
   for (let i = 0; i < 1000; i++) Wd.get('step')();     // onend never arrives
   ok('a hung utterance is force-closed by the watchdog',
-     Wd.audioCtx.liveVoices < stuck, Wd.audioCtx.liveVoices + ' vs ' + stuck);
-  ok('and the game is not left ducked forever', Wd.masterGain().gain.value > 0.3);
+     Wd.masterGain().gain.value > 0.3, String(Wd.masterGain().gain.value));
 }
 
 section('the world scales to the screen');

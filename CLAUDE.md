@@ -124,14 +124,24 @@ the browser's speech synthesis.
   (voice list populates asynchronously, quality swings, some browsers ship
   none), so `VOICE` fails soft everywhere and the button hides itself when
   speech is unavailable. Never make anything depend on speech working.
+- **Two Chrome bugs are being worked around in `say()`, and both cut lines
+  off mid-sentence. Do not "tidy" either away.**
+  1. `held = u` keeps a reference to the utterance. Chrome garbage-collects
+     an utterance nothing points at, *while it is still speaking*, and the
+     line simply stops partway through.
+  2. `cancel()` runs only when `speaking || pending`. Chrome truncates or
+     swallows an utterance spoken in the same tick as a `cancel()`, and an
+     unconditional cancel on the normal path bought nothing.
 - **The voice itself cannot be filtered.** Browsers do not expose speech
   output to Web Audio on any platform, so there is no way to band-limit or
-  distort the synthesised voice. The radio feel is built AROUND it instead:
-  a squelch click at each end and a band-limited static bed, on `commsBus`.
-  Do not go looking for a way to process the voice; there is not one.
-- **`commsBus` is muted but never ducked.** It carries the transmission, so
-  ducking it under the transmission would erase it. Two buses, two rules,
-  both set by `applyMaster()`.
+  distort the synthesised voice. Do not go looking; there is not one.
+  **Tried and removed on 2026-08-15:** a band-limited static bed under the
+  voice. It read as noise rather than atmosphere. The squelch click stayed.
+- **British voice preferred** — `en-GB` first, then any English, then
+  anything. Martin picked that out specifically.
+- **`commsBus` is muted but never ducked.** It carries the squelch, which is
+  part of the transmission, so ducking it under the transmission is wrong.
+  Two buses, two rules, both set by `applyMaster()`.
 - **Master gain has two independent inputs** — mute, and ducking under a
   transmission. Both go through `applyMaster()`. Setting `master.gain`
   directly from either one reintroduces the bug where unmuting mid-briefing

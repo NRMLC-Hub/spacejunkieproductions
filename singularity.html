@@ -586,7 +586,6 @@ const SFX = (() => {
   let thrustSrc = null, thrustGain = null;
   let ufoOsc = null, ufoLfo = null, ufoGain = null;
   let droneOsc = null, droneFilt = null, droneGain = null;
-  let commsSrc = null, commsGain = null;
   let shaper = null;   // shared soft-clipper; `drive:true` routes through it
 
   /* Master level has two independent inputs — the mute toggle and ducking
@@ -595,7 +594,7 @@ const SFX = (() => {
      un-ducking must not unmute. */
   const FULL = 0.32, DUCKED = 0.11;
   let ducked = false;
-  let commsBus = null;   // radio squelch + static: muted, but never ducked
+  let commsBus = null;   // radio squelch: muted, but never ducked
   const masterTarget = () => muted ? 0 : (ducked ? DUCKED : FULL);
   function applyMaster(){
     if (!ctx) return;
@@ -716,32 +715,13 @@ const SFX = (() => {
     // Pull the game down under a voice transmission so the two do not fight.
     duck(on){ ducked = !!on; applyMaster(); },
 
-    /* An open radio channel. The browser will not let us process the
-       synthesised voice itself — speech output is not reachable from Web
-       Audio on any platform — so the channel is built AROUND it instead: a
-       squelch click at each end and a band-limited hiss underneath. Between
-       that and the ducked game bed, it reads as a transmission.
+    /* The click as the channel keys open and drops closed. This is all that
+       is left of the radio treatment — a static bed was tried and removed; it
+       read as noise rather than as atmosphere. The click stays because it
+       marks the transmission without sitting on top of the voice.
 
-       Bandpassed at 1.7kHz and highpassed at 700Hz: real comms gear is
-       band-limited to roughly 300-3000Hz, and it is the missing bottom end
-       that makes a radio sound like a radio. */
-    comms(on){
-      if (!ctx) return;
-      if (on && !commsSrc){
-        commsSrc = ctx.createBufferSource(); commsSrc.buffer = noiseBuf; commsSrc.loop = true;
-        const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1700; bp.Q.value = 0.7;
-        const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 700;
-        commsGain = ctx.createGain(); commsGain.gain.value = 0.0001;
-        commsSrc.connect(bp).connect(hp).connect(commsGain).connect(commsBus);
-        commsSrc.start();
-        commsGain.gain.linearRampToValueAtTime(0.055, ctx.currentTime + 0.05);
-      } else if (!on && commsSrc){
-        release(commsSrc, commsGain, 0.14);
-        commsSrc = null; commsGain = null;
-      }
-    },
-
-    // The click as the channel keys open and drops closed.
+       On commsBus, which follows mute but never ducks: the click is part of
+       the transmission, so ducking it under the transmission is wrong. */
     squelch(open){
       if (!ctx || muted) return;
       tone({ freq: open ? 1600 : 900, to: open ? 950 : 460, dur:0.045,
@@ -859,7 +839,7 @@ const SFX = (() => {
     },
 
     // Every voice down, now. Used on pause, death and mode changes.
-    silence(){ this.thrust(false); this.ufo(false); this.pull(0); this.comms(false); },
+    silence(){ this.thrust(false); this.ufo(false); this.pull(0); },
   };
 })();
 
@@ -901,6 +881,7 @@ const VOICE = (() => {
   const synth = typeof speechSynthesis !== 'undefined' ? speechSynthesis : null;
   let on = true, voice = null, picked = false;
   let guard = 0;   // ticks until the channel is forced shut, see tick()
+  let held = null; // see say(): a dropped utterance gets collected mid-sentence
   try { const v = localStorage.getItem(KEY); if (v !== null) on = v === '1'; } catch (e) {}
 
   /* getVoices() is empty on first call in most browsers and fills in later,
@@ -912,8 +893,11 @@ const VOICE = (() => {
     if (!all || !all.length) return;
     picked = true;
     const en = all.filter(v => /^en\b|^en[-_]/i.test(v.lang || ''));
-    const pool = en.length ? en : all;
-    voice = pool.find(v => /daniel|arthur|oliver|google uk english male|microsoft (guy|ryan)/i.test(v.name || ''))
+    // British first, by preference — it suits a comms officer, and it is the
+    // one Martin picked out. Falls back to any English, then to anything.
+    const gb = all.filter(v => /^en[-_]GB/i.test(v.lang || ''));
+    const pool = gb.length ? gb : (en.length ? en : all);
+    voice = pool.find(v => /daniel|arthur|oliver|google uk english male|microsoft (george|ryan|hazel)/i.test(v.name || ''))
          || pool.find(v => /male/i.test(v.name || ''))
          || pool[0];
   }
@@ -933,8 +917,7 @@ const VOICE = (() => {
       return on;
     },
     stop(){
-      guard = 0;
-      SFX.comms(false);
+      guard = 0; held = null;
       SFX.duck(false);          // never leave the game quiet after a cancel
       if (!synth) return;
       try { synth.cancel(); } catch (e) {}
@@ -948,17 +931,22 @@ const VOICE = (() => {
     say(text){
       if (!synth || !on || SFX.muted) return false;
       try {
-        synth.cancel();         // a fast sector clear must not stack briefings
+        // Cancel ONLY when something is actually speaking. Chrome truncates
+        // or silently swallows an utterance spoken in the same tick as a
+        // cancel(), and on the normal path there is nothing to cancel — so
+        // the unconditional cancel here was cutting lines off for no benefit.
+        if (synth.speaking || synth.pending) synth.cancel();
         const u = new SpeechSynthesisUtterance(text);
         if (voice) u.voice = voice;
         // Brisk. A comms officer reads faster than a narrator, and a slow
         // line is still being read out while the player is already dodging.
-        u.rate = 1.2; u.pitch = 0.9; u.volume = 0.95;
-        const close = () => { guard = 0; SFX.comms(false); SFX.duck(false); };
+        u.rate = 1.2; u.pitch = 0.9; u.volume = 0.8;
+        const close = () => { guard = 0; held = null; SFX.duck(false); };
         u.onend = close; u.onerror = close;
         // Opened here rather than on onstart, so the squelch pre-rolls the
         // first syllable instead of landing on top of it.
-        SFX.duck(true); SFX.squelch(true); SFX.comms(true);
+        held = u;   // Chrome collects a dropped utterance mid-sentence
+        SFX.duck(true); SFX.squelch(true);
         guard = Math.min(900, 90 + text.split(/s+/).length * 24);
         synth.speak(u);
         return true;

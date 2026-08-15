@@ -84,11 +84,9 @@ voice is an enhancement:** the line always appears on the banner, whether or
 not the browser can speak, and the `V` toggle only silences the speech. Speech
 support varies wildly across platforms, so none of it is load-bearing.
 
-Each one opens with a squelch click over a band-limited static bed, so it reads
-as a radio channel rather than a computer talking. The voice itself is *not*
-filtered — browsers do not expose speech output to Web Audio, so the channel is
-built around it. The game ducks under a transmission and comes back up after;
-the static deliberately does not duck, since it is part of the transmission. `M` silences everything including speech; `V` silences speech alone.
+Each one opens with a squelch click, and the game ducks underneath so the two
+are not fighting. The voice itself is *not* processed — browsers do not expose
+speech output to Web Audio, so there is no way to band-limit or distort it. `M` silences everything including speech; `V` silences speech alone.
 
 ## Pilots and scores
 
@@ -116,7 +114,7 @@ methods, without changing any call site.
 node tests/accounts.test.js
 ```
 
-187 assertions, no browser and no automation. The harness extracts the inline
+189 assertions, no browser and no automation. The harness extracts the inline
 `<script>` block and runs it in a Node `vm` context against stub DOM objects.
 
 It covers signup, sign-in, recovery and scoring; asserts that no password or
