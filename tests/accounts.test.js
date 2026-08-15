@@ -193,6 +193,29 @@ section('every element the script reaches for exists in the markup');
   ok('a guest game-over says so', Z.el('overPilot').innerHTML.includes('guest'));
 }
 
+section('double-tap zoom guard (iOS ignores user-scalable=no)');
+{
+  const T = run({ media: { '(pointer: coarse)': true } });
+  const tap = (ts, target) => {
+    let prevented = false;
+    T.fireGlobal('touchend', {
+      timeStamp: ts,
+      target: target || { closest: () => null },
+      preventDefault() { prevented = true; },
+    });
+    return prevented;
+  };
+  ok('a single tap is never prevented', tap(1000) === false);
+  ok('a second tap 100ms later IS prevented', tap(1100) === true);
+  ok('a tap 500ms later is not prevented', tap(1600) === false);
+  ok('a double tap on a text field is left alone',
+     tap(1700, { closest: sel => (sel.includes('input') ? {} : null) }) === false);
+
+  const D = run();   // desktop: no coarse pointer, so no guard is installed
+  ok('the guard is not installed on a desktop pointer',
+     (D.sandbox._listeners.global.touchend || []).length === 0);
+}
+
 section('progressive web app');
 {
   // file:// — service workers are unavailable there, so registration must not
@@ -243,7 +266,16 @@ section('manifest, icons and mobile viewport');
   ok('apple touch icon is declared', /rel="apple-touch-icon"/.test(html));
   ok('stage height uses dvh, with a vh fallback before it',
      /height:100vh;height:100dvh/.test(html));
-  ok('overlays opt back into vertical dragging', /touch-action:pan-y/.test(html));
+  // Regression guard. touch-action intersects down the tree, so `none` on the
+  // root would stop the overlays scrolling; and WebKit only reliably kills
+  // double-tap zoom for `none` / `manipulation`, never for `pan-y`.
+  ok('root uses manipulation, not none',
+     /html,body\{[^}]*touch-action:manipulation/.test(html));
+  ok('overlays use manipulation so they scroll AND do not double-tap zoom',
+     /touch-action:manipulation;\s*\n?\s*-webkit-overflow-scrolling/.test(html));
+  ok('no element relies on pan-y for zoom suppression', !/touch-action:pan-y/.test(html));
+  ok('the canvas swallows every gesture', /canvas\{[^}]*touch-action:none/.test(html));
+  ok('the thumb buttons swallow every gesture', /\.btn\{[\s\S]*?touch-action:none/.test(html));
   ok('key legend is hidden on a touch device',
      /@media \(pointer: coarse\)\{[\s\S]*?\.keys\{display:none\}/.test(html));
   ok('thumb controls clear the home indicator',

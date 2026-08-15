@@ -25,13 +25,19 @@
     --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  html,body{height:100%;background:var(--void);overflow:hidden}
+  /* touch-action intersects DOWN the tree: a child cannot re-enable a gesture
+     its ancestor forbade. So the root gets `manipulation` — which permits
+     scrolling and pinch but kills double-tap-to-zoom — and the elements that
+     must swallow every gesture (the canvas, the thumb pad) say `none`
+     themselves. Putting `none` on body instead would also stop the overlays
+     from scrolling, and iOS ignores `user-scalable=no` regardless, so this is
+     the only thing actually holding zoom back on an iPhone. */
+  html,body{height:100%;background:var(--void);overflow:hidden;touch-action:manipulation}
   body{
     font-family:var(--mono);
     color:var(--ink);
     display:flex;align-items:center;justify-content:center;
     -webkit-tap-highlight-color:transparent;
-    touch-action:none;
   }
 
   /* 100vh on a phone means the height WITH the address bar hidden, so the
@@ -39,7 +45,8 @@
      browser chrome. dvh tracks the visible box; the vh line is the fallback
      for browsers that do not know dvh. */
   #stage{position:relative;width:100%;height:100vh;height:100dvh;overflow:hidden}
-  canvas{display:block;width:100%;height:100%}
+  /* The play surface swallows every gesture — no scroll, no pinch, no zoom. */
+  canvas{display:block;width:100%;height:100%;touch-action:none}
 
   /* CRT treatment — scanlines + vignette, sits above the canvas */
   #stage::after{
@@ -78,9 +85,11 @@
             calc(24px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));
     background:rgba(0,0,0,.72);
     overflow-y:auto;   /* these screens grew a leaderboard; short viewports scroll */
-    /* body sets touch-action:none so the game never scrolls the page. These
-       screens DO need to scroll, so they opt vertical dragging back in. */
-    touch-action:pan-y;
+    /* `manipulation`, not `pan-y`: both allow the drag-scroll these screens
+       need, but WebKit only reliably suppresses double-tap zoom for `none`
+       and `manipulation`. Pinch stays available here on purpose — this is the
+       screen with the small print on it. */
+    touch-action:manipulation;
     -webkit-overflow-scrolling:touch;
     overscroll-behavior:contain;
   }
@@ -149,7 +158,7 @@
   #banner .t{font-size:11px;letter-spacing:.34em;color:var(--dim);text-transform:uppercase}
 
   /* ---- Touch controls ---- */
-  #touch{position:absolute;inset:0;display:none;pointer-events:none}
+  #touch{position:absolute;inset:0;display:none;pointer-events:none;touch-action:none}
   #touch.show{display:block}
   .pad{
     position:absolute;bottom:26px;pointer-events:auto;
@@ -163,6 +172,8 @@
     background:rgba(0,0,0,.35);color:var(--ink);
     display:flex;align-items:center;justify-content:center;
     font-size:12px;letter-spacing:.1em;
+    /* Rapid-fire tapping must never read as a double-tap gesture. */
+    touch-action:none;user-select:none;-webkit-user-select:none;
   }
   .btn:active,.btn.on{background:rgba(255,255,255,.16)}
   .btn.fire{width:74px;height:74px}
@@ -537,6 +548,21 @@ if (matchMedia('(pointer: coarse)').matches){
     btn.addEventListener('pointercancel', off);
     btn.addEventListener('pointerleave', off);
   });
+  /* Belt and braces for iOS. touch-action:manipulation is the real fix, but
+     older WebKit still zooms on a fast second tap, and iOS ignores
+     user-scalable=no outright. Suppressing the default on a touchend that
+     lands within 320ms of the previous one kills the gesture.
+     Form fields are exempt: preventing the default there can eat the focus,
+     and a double-tap in a password box should still place the caret. */
+  let lastTap = 0;
+  addEventListener('touchend', e => {
+    const t = e.timeStamp;
+    if (t - lastTap < 320 && !(e.target.closest && e.target.closest('input, textarea'))){
+      e.preventDefault();
+    }
+    lastTap = t;
+  }, { passive:false });
+
   /* Bound to #stage, not the canvas: the title and game-over overlays sit on
      top of the canvas and swallow the tap before it ever reaches it, so the
      canvas listener this replaces could not fire while either was showing.
