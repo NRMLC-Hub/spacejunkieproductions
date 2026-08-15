@@ -239,22 +239,19 @@ section('deliberate distance from the 1979 arcade original');
   ok('the small saucer is the smaller target', C.alien.small.r < C.alien.big.r);
   // drawAlien derives its scale from these, so a mismatch would silently make
   // the drawing and the hitbox disagree.
-  ok('saucer radii are large enough to read on a phone', C.alien.big.r >= 26);
+  ok('saucers stay small; the +50% pass was reverted', C.alien.big.r <= 20);
 
   const fs = require('fs'), path = require('path');
   const html = fs.readFileSync(path.join(__dirname, '..', 'singularity.html'), 'utf8');
   const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
   ok('the game does not define itself by the original in user-facing copy',
      !/^A monochrome vector arcade shooter\. Asteroids,/m.test(readme));
-  // A domed disc is generic UFO iconography and belongs to nobody. The 1979
-  // game's SPECIFIC rendering does not: a flat hexagon hull with a horizontal
-  // line through it and a trapezoid dome. Ours is elliptical, has a keel, and
-  // carries no equatorial line.
-  ok('the saucer is drawn as ellipses, not as a hexagon',
-     /ctx\.ellipse\(0, 0, 28, 7/.test(html));
-  ok('the saucer has a keel underneath, not just a dome',
-     /ctx\.ellipse\(0, 1, 16, 9, 0, 0, Math\.PI\)/.test(html));
-  ok('the saucer has no line straight through its middle',
+  // The arcade craft is a WIDE hexagon with a horizontal line straight through
+  // it and a trapezoid dome. Ours is a TALL hexagon with a faceted core and
+  // side bars. (A curved domed saucer was tried and reverted on 2026-08-15.)
+  ok('the alien is a tall hull, not the wide domed saucer',
+     /ctx\.moveTo\(0, -13\); ctx\.lineTo\(10, -4\.5\)/.test(html));
+  ok('the alien has no line straight through its middle',
      !/ctx\.moveTo\(-18, 0\); ctx\.lineTo\(18, 0\)/.test(html));
   ok('the ship is a swept wing, not the arcade triangle',
      /ctx\.moveTo\(11, 0\);\s*\/\/ nose/.test(html) && !/ctx\.moveTo\(16, 0\); ctx\.lineTo\(-11, 9\)/.test(html));

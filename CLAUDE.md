@@ -55,12 +55,14 @@ on 2026-08-15; do not let these drift back:
   (15/45/135), saucers at 300/750, extra hull at 12,000, and `CONFIG` carries
   the reasoning. **Do not "restore" the old numbers.**
 - **The ship is a swept flying wing**, not the arcade triangle.
-- **The alien is a saucer drawn as ellipses**, with a keel below as well as a
-  dome above and no equatorial line. A domed disc is generic UFO iconography
-  older than the game and belongs to nobody; what is not ours is the 1979
-  rendering *specifically* — a flat **hexagon** hull with a horizontal line
-  straight through it and a **trapezoid** dome. Stay curved, keep the keel,
-  keep the faceted core, and never add that centre line.
+- **The alien is a tall hexagonal probe** with a faceted core and side bars —
+  not the wide domed saucer. That silhouette is the most recognisable thing in
+  the genre and is not ours. Never add a horizontal line through its middle;
+  that plus a wide hull plus a trapezoid dome IS the arcade craft.
+  **Tried and reverted on 2026-08-15:** a curved domed saucer at +50% size.
+  Martin asked for it, saw it, and asked for it back out — the bigger craft
+  crowded the field and the disc lost the probe's identity. Don't re-propose
+  it; if the alien needs work, take it somewhere new.
 - **Do not define the game as "Asteroids" in the README, the repo description,
   or store copy.** Comparison in conversation is fine; making it the
   definition is what invites a trademark problem. "ASTEROIDS" is a live Atari
