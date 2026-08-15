@@ -893,7 +893,14 @@ function showBanner(n, t){
 
 const NAME_RE = /^[A-Za-z0-9_.-]{2,16}$/;
 const MIN_PW  = 6;
-const LS = { users:'sj.users.v1', session:'sj.session.v1' };
+const LS = { users:'sj.users.v1', session:'sj.session.v1', epoch:'sj.epoch.v1' };
+
+/* Bump SCORE_EPOCH whenever the scoring changes. Scores from either side of
+   such a change are not comparable, and a leaderboard mixing the two is worse
+   than an empty one. On the next load every recorded best is cleared —
+   accounts, passwords, recovery codes and lifetime play counts all survive.
+   2: the 3x rock ramp (15/45/135) replaced the old 20/50/100. */
+const SCORE_EPOCH = 2;
 
 // Safari refuses localStorage on file:// origins, so this can genuinely fail.
 let storageOK = false;
@@ -937,6 +944,16 @@ const normName = s => String(s).trim();
 const key      = s => normName(s).toLowerCase();
 
 const publicUser = u => ({ name:u.name, best:u.best|0, bestLevel:u.bestLevel|0, plays:u.plays|0 });
+
+function migrateScores(){
+  if (!storageOK) return;
+  if (Number(lsGet(LS.epoch, 0)) === SCORE_EPOCH) return;
+  const users = lsGet(LS.users, {});
+  for (const k in users){ users[k].best = 0; users[k].bestLevel = 0; users[k].bestAt = 0; }
+  lsSet(LS.users, users);
+  lsSet(LS.epoch, SCORE_EPOCH);
+}
+migrateScores();
 
 const LocalStore = {
   kind: 'local',

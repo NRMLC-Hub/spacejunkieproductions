@@ -98,7 +98,7 @@ methods, without changing any call site.
 node tests/accounts.test.js
 ```
 
-151 assertions, no browser and no automation. The harness extracts the inline
+157 assertions, no browser and no automation. The harness extracts the inline
 `<script>` block and runs it in a Node `vm` context against stub DOM objects.
 
 It covers signup, sign-in, recovery and scoring; asserts that no password or

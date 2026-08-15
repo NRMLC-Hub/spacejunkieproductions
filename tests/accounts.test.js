@@ -193,6 +193,32 @@ section('every element the script reaches for exists in the markup');
   ok('a guest game-over says so', Z.el('overPilot').innerHTML.includes('guest'));
 }
 
+section('a scoring change clears the board without touching accounts');
+{
+  // Build a store that looks like it was written under the old scoring.
+  const seed = run();
+  const S0 = seed.get('Store');
+  await S0.signUp('veteran', 'password1');
+  await S0.submitScore(8800, 7);
+  await S0.signOut();
+  seed.localStorage.setItem('sj.epoch.v1', '1');          // pretend: older epoch
+
+  const after = run({ storage: seed.localStorage });
+  const S1 = after.get('Store');
+  ok('an old-epoch best is cleared', (await S1.topTen()).length === 0);
+  ok('the account itself survives', (await S1.signIn('veteran', 'password1')).name === 'veteran');
+  ok('the cleared pilot reads as zero', (await S1.currentUser()).best === 0);
+  ok('lifetime play count is preserved', (await S1.currentUser()).plays === 1);
+  ok('the epoch is stamped so it happens once',
+     after.localStorage.getItem('sj.epoch.v1') === '2');
+
+  // And a store already at the current epoch is left alone.
+  await S1.submitScore(5000, 4);
+  const again = run({ storage: after.localStorage });
+  ok('a current-epoch board is not wiped on reload',
+     (await again.get('Store').topTen())[0].score === 5000);
+}
+
 section('deliberate distance from the 1979 arcade original');
 {
   const C = run().get('CONFIG');
