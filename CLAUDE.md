@@ -18,6 +18,14 @@ This file is the working context.
 - `index.html` is a redirect to `singularity.html`, not a second copy. GitHub
   Pages needs an `index.html` at the root; the game keeps its deliberate name.
   A duplicate `index.html` was deleted once already — do not reintroduce one.
+- **Icons are generated, not edited.** `node tools/make-icons.js` writes
+  `icon-{32,180,192,512}.png`. Change the mark in that script and re-run it;
+  never hand-edit the PNGs. Keep the art inside the middle 60% or a circular
+  mask will clip it. The output is committed so a clone needs no build step.
+- **The service worker caches the game.** After changing `singularity.html`,
+  bump `CACHE_VERSION` in `sw.js` if you touched the asset list. HTML is
+  network-first on purpose — cache-first would strand installed players on an
+  old build with no way to know. Do not "optimise" that to cache-first.
 - **No browser automation.** Never drive a browser to check this. Martin's
   browser holds sensitive financial data and driving that live session risks
   exposing it. To show something works, give him a path or URL and let him open
@@ -25,8 +33,12 @@ This file is the working context.
 - **Verify headlessly instead**: `node tests/accounts.test.js`. The harness in
   `tests/harness.js` extracts the inline `<script>` and runs it in a Node `vm`
   context against stub DOM objects. This catches real bugs — it confirmed the
-  fixed-timestep fix, and the whole accounts feature was built against it.
+  fixed-timestep fix, and the accounts and PWA work were both built against it.
   Add to it rather than testing by hand.
+- **The harness cannot see a phone.** It checks that the markup, manifest and
+  service worker say the right things; it cannot tell you whether the layout
+  actually works on hardware. Anything about how it *looks* on a device is
+  unverified until Martin opens it. Say so rather than implying otherwise.
 - **Correct the record in files, not just in chat.** Findings that only live in
   a conversation are lost when the session ends.
 

@@ -20,7 +20,26 @@ offline, straight off the disk.
 | `Space` | Fire |
 | `P` | Pause |
 
-Touch controls appear automatically on a coarse pointer.
+Touch controls appear automatically on a coarse pointer, and the key legend
+hides itself there.
+
+## On a phone
+
+Open the link. Thrust, rotate and fire buttons appear, positioned clear of the
+notch and the home indicator.
+
+To install it properly, use your browser's **Add to Home Screen** — Share menu on
+iOS Safari, the ⋮ menu on Android Chrome. It then launches full screen with no
+browser chrome, has its own icon, and **runs with no network at all.**
+
+HTML is fetched network-first so an online launch always gets the current build;
+everything else is served from cache. That means the installed app updates
+itself rather than stranding you on an old version, which a cache-first service
+worker would.
+
+The icons are generated, not hand-drawn — `node tools/make-icons.js` rasterises
+them to PNG with no dependencies (Node's own zlib does the compression). The art
+stays inside the middle 60% so a circular or squircle mask cannot clip it.
 
 ## Pilots and scores
 
@@ -48,7 +67,7 @@ methods, without changing any call site.
 node tests/accounts.test.js
 ```
 
-72 assertions, no browser and no automation. The harness extracts the inline
+94 assertions, no browser and no automation. The harness extracts the inline
 `<script>` block and runs it in a Node `vm` context against stub DOM objects.
 
 It covers signup, sign-in, recovery and scoring; asserts that no password or
@@ -57,6 +76,15 @@ password field neither fires a weapon nor launches a game; that a hostile
 callsign injected straight into storage is escaped when the leaderboard renders;
 and that the fixed-timestep simulation still produces exactly 60 ticks per second
 at 60Hz, 144Hz and 30Hz.
+
+It also checks the install path: that the service worker registers over https but
+never from `file://`, that a browser without service workers still boots the game,
+that a refused registration is swallowed rather than thrown, and that every file
+the manifest and service worker promise actually exists and is a real PNG of the
+size it claims.
+
+**Not covered:** how any of this behaves on a real phone. There is no device in
+the loop and no browser automation. Layout on hardware needs a human to look.
 
 ## Architecture
 

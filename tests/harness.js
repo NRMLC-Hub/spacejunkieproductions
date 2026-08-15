@@ -108,7 +108,10 @@ function buildSandbox(opts = {}) {
     TextDecoder,
     crypto: require('crypto').webcrypto,
     localStorage: opts.storage || makeStorage(),
-    navigator: { clipboard: { writeText: async () => {} } },
+    // Default to file://, the case where the service worker must NOT register.
+    // Pass opts.location / opts.navigator to exercise the http(s) path.
+    navigator: opts.navigator || { clipboard: { writeText: async () => {} } },
+    location: opts.location || { protocol: 'file:', href: 'file:///singularity.html' },
     matchMedia: q => ({ matches: !!(opts.media && opts.media[q]) }),
     devicePixelRatio: 1,
     setTimeout: (fn) => { /* focus only; run nothing */ return 0; },

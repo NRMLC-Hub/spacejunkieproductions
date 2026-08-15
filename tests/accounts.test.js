@@ -193,6 +193,86 @@ section('every element the script reaches for exists in the markup');
   ok('a guest game-over says so', Z.el('overPilot').innerHTML.includes('guest'));
 }
 
+section('progressive web app');
+{
+  // file:// — service workers are unavailable there, so registration must not
+  // even be attempted, let alone throw and take the game down with it.
+  let triedOnFile = false;
+  run({ navigator: { clipboard: {}, serviceWorker: { register: () => { triedOnFile = true; return Promise.resolve(); } } } })
+    .fireGlobal('load', {});
+  ok('service worker is NOT registered from file://', triedOnFile === false);
+
+  // https — it should register, and register sw.js relative to the page.
+  let registered = null;
+  const P = run({
+    location: { protocol: 'https:', href: 'https://example.com/singularity.html' },
+    navigator: { clipboard: {}, serviceWorker: { register: p => { registered = p; return Promise.resolve(); } } },
+  });
+  ok('nothing registers before the load event fires', registered === null);
+  P.fireGlobal('load', {});
+  ok('service worker registers over https', registered === 'sw.js');
+
+  // A browser with no serviceWorker at all must still boot the game.
+  const N = run({ location: { protocol: 'https:', href: 'https://example.com/' } });
+  N.fireGlobal('load', {});
+  ok('a browser without service workers still runs the game', N.get('S').mode === 'title');
+
+  // A refused registration must not surface as an unhandled rejection.
+  let unhandled = null;
+  const onUnhandled = e => { unhandled = e; };
+  process.once('unhandledRejection', onUnhandled);
+  run({
+    location: { protocol: 'https:', href: 'https://example.com/' },
+    navigator: { clipboard: {}, serviceWorker: { register: () => Promise.reject(new Error('blocked')) } },
+  }).fireGlobal('load', {});
+  await new Promise(r => setImmediate(r));
+  process.removeListener('unhandledRejection', onUnhandled);
+  ok('a refused registration is swallowed, not thrown', unhandled === null);
+}
+
+section('manifest, icons and mobile viewport');
+{
+  const fs = require('fs'), path = require('path');
+  const root = path.join(__dirname, '..');
+  const html = fs.readFileSync(path.join(root, 'singularity.html'), 'utf8');
+  const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
+  const mf = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+
+  ok('manifest is linked from the game', /<link rel="manifest" href="manifest\.json">/.test(html));
+  ok('viewport opts into the safe-area insets', /viewport-fit=cover/.test(html));
+  ok('apple touch icon is declared', /rel="apple-touch-icon"/.test(html));
+  ok('stage height uses dvh, with a vh fallback before it',
+     /height:100vh;height:100dvh/.test(html));
+  ok('overlays opt back into vertical dragging', /touch-action:pan-y/.test(html));
+  ok('key legend is hidden on a touch device',
+     /@media \(pointer: coarse\)\{[\s\S]*?\.keys\{display:none\}/.test(html));
+  ok('thumb controls clear the home indicator',
+     /bottom:calc\(26px \+ env\(safe-area-inset-bottom\)\)/.test(html));
+  ok('form fields are 16px so iOS does not zoom', /font-size:16px;\s*\/\* iOS zooms/.test(html));
+
+  ok('manifest start_url points straight at the game', mf.start_url === './singularity.html');
+  ok('manifest asks for fullscreen', mf.display === 'fullscreen');
+  ok('manifest offers a maskable icon', mf.icons.some(i => i.purpose === 'maskable'));
+  ok('manifest and page agree on the theme colour',
+     mf.theme_color === '#000000' && /name="theme-color" content="#000000"/.test(html));
+
+  const listed = mf.icons.map(i => i.src)
+    .concat((sw.match(/const ASSETS = \[([\s\S]*?)\];/)[1].match(/'([^']+)'/g) || [])
+      .map(s => s.replace(/'/g, '')));
+  const missing = [...new Set(listed)]
+    .map(p => p.replace(/^\.\//, ''))
+    .filter(p => p !== '' && !fs.existsSync(path.join(root, p)));
+  ok('every file the manifest and service worker list actually exists',
+     missing.length === 0, missing.join(', '));
+
+  for (const px of [32, 180, 192, 512]) {
+    const buf = fs.readFileSync(path.join(root, 'icon-' + px + '.png'));
+    ok('icon-' + px + '.png is a real PNG at ' + px + 'x' + px,
+       buf.slice(0, 8).toString('hex') === '89504e470d0a1a0a' &&
+       buf.readUInt32BE(16) === px && buf.readUInt32BE(20) === px);
+  }
+}
+
 console.log(results.join('\n'));
 console.log('\n  ' + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

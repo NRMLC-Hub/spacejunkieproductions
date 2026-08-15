@@ -2,8 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<!-- viewport-fit=cover lets the canvas run under a notch; the safe-area insets
+     in the stylesheet keep the HUD and thumb controls out from under it. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>SINGULARITY</title>
+<meta name="description" content="A monochrome vector arcade shooter where black holes bend everything, including your own shots.">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="icon-180.png">
+<!-- iOS ignores the manifest; these are how it learns to launch full-screen. -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SINGULARITY">
 <style>
   :root{
     --ink:#ffffff;
@@ -22,7 +34,11 @@
     touch-action:none;
   }
 
-  #stage{position:relative;width:100vw;height:100vh;overflow:hidden}
+  /* 100vh on a phone means the height WITH the address bar hidden, so the
+     bottom of the play area — where the fire button lives — ends up under the
+     browser chrome. dvh tracks the visible box; the vh line is the fallback
+     for browsers that do not know dvh. */
+  #stage{position:relative;width:100%;height:100vh;height:100dvh;overflow:hidden}
   canvas{display:block;width:100%;height:100%}
 
   /* CRT treatment — scanlines + vignette, sits above the canvas */
@@ -37,6 +53,11 @@
   #hud{
     position:absolute;inset:0;pointer-events:none;
     padding:18px 22px;
+    /* Keep the readouts clear of a notch or rounded corner. env() resolves to
+       0 where there is no inset, and the whole declaration is dropped by
+       browsers without env() support, falling back to the line above. */
+    padding:calc(18px + env(safe-area-inset-top)) calc(22px + env(safe-area-inset-right))
+            18px calc(22px + env(safe-area-inset-left));
     display:flex;justify-content:space-between;align-items:flex-start;
     font-size:13px;letter-spacing:.22em;text-transform:uppercase;
   }
@@ -53,8 +74,15 @@
     position:absolute;inset:0;display:none;
     flex-direction:column;align-items:center;justify-content:safe center;
     text-align:center;gap:22px;padding:24px;
+    padding:calc(24px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right))
+            calc(24px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));
     background:rgba(0,0,0,.72);
     overflow-y:auto;   /* these screens grew a leaderboard; short viewports scroll */
+    /* body sets touch-action:none so the game never scrolls the page. These
+       screens DO need to scroll, so they opt vertical dragging back in. */
+    touch-action:pan-y;
+    -webkit-overflow-scrolling:touch;
+    overscroll-behavior:contain;
   }
   .screen.show{display:flex}
   .title{
@@ -80,7 +108,9 @@
   .field label{font-size:10px;letter-spacing:.3em;color:var(--dim);text-transform:uppercase}
   .field input{
     background:transparent;border:0;border-bottom:1px solid var(--faint);
-    color:var(--ink);font-family:var(--mono);font-size:15px;letter-spacing:.14em;
+    color:var(--ink);font-family:var(--mono);
+    font-size:16px;   /* iOS zooms the page for any field under 16px */
+    letter-spacing:.14em;
     padding:7px 2px;outline:none;border-radius:0;
   }
   .field input:focus{border-bottom-color:var(--ink)}
@@ -123,10 +153,11 @@
   #touch.show{display:block}
   .pad{
     position:absolute;bottom:26px;pointer-events:auto;
+    bottom:calc(26px + env(safe-area-inset-bottom));   /* clear of the home indicator */
     display:flex;gap:14px;
   }
-  .pad.left{left:22px}
-  .pad.right{right:22px}
+  .pad.left{left:22px;left:calc(22px + env(safe-area-inset-left))}
+  .pad.right{right:22px;right:calc(22px + env(safe-area-inset-right))}
   .btn{
     width:62px;height:62px;border:1px solid var(--dim);border-radius:50%;
     background:rgba(0,0,0,.35);color:var(--ink);
@@ -136,6 +167,23 @@
   .btn:active,.btn.on{background:rgba(255,255,255,.16)}
   .btn.fire{width:74px;height:74px}
   @media (prefers-reduced-motion: reduce){ .blink{animation:none} }
+
+  /* On a touch device the key legend lists keys that do not exist, and it is
+     the tallest block on an already-tall title screen. The on-screen pad is
+     self-explanatory. */
+  @media (pointer: coarse){
+    .keys{display:none}
+    .btn{width:66px;height:66px}
+    .btn.fire{width:78px;height:78px}
+  }
+  /* Landscape phones are short. Tighten the overlays so the leaderboard and
+     the launch prompt still fit without a scroll. */
+  @media (pointer: coarse) and (max-height:460px){
+    .screen{gap:12px}
+    .title{font-size:clamp(26px,7vw,44px)}
+    .sub{line-height:1.7}
+    .board li{gap:8px}
+  }
 </style>
 </head>
 <body>
@@ -1236,6 +1284,15 @@ function loop(now){
   let ticks = 0;
   while (accumulator >= TICK && ticks < MAX_CATCHUP){ step(); accumulator -= TICK; ticks++; }
   draw();
+}
+
+/* ------------------------------ install --------------------------------
+   Registers the service worker so the game can be added to a home screen and
+   played with no network. Skipped on file:// — service workers require
+   http(s), and opening the file from disk already works offline without one.
+   A failure here must never stop the game loading, hence the empty catch. */
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')){
+  addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
 }
 
 resize();
