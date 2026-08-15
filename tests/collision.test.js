@@ -383,6 +383,83 @@ section('waves');
   ok('later waves send them closer together', w8.gap < w1.gap);
 }
 
+section('wave one is survivable, and waves turn over');
+{
+  const G = run({ audio: true, W: 1600, H: 900 });
+  launch(G);
+  const S = G.get('S'), C = G.get('CONFIG'), setup = G.get('waveSetup');
+
+  /* REGRESSION. Wave one used to send six size-3 rocks — forty-two objects
+     once they split — at an Earth four of them would finish. */
+  setup(1);
+  const objects = size => size === 3 ? 7 : (size === 2 ? 3 : 1);
+  ok('wave one sends only a handful of rocks', S.queue <= 4, String(S.queue));
+  ok('and they are mediums, which split once rather than twice', S.waveSize === 2);
+  ok('so wave one is under a dozen objects even fully split',
+     S.queue * objects(S.waveSize) <= 12, String(S.queue * objects(S.waveSize)));
+  setup(2);
+  ok('wave two is still mediums', S.waveSize === 2);
+  setup(3);
+  ok('the big ones arrive at wave three', S.waveSize === 3);
+
+  ok('Earth survives more than a handful of hits',
+     Math.ceil(C.earth.integrity / C.rock.damage[3]) >= 5,
+     Math.ceil(C.earth.integrity / C.rock.damage[3]) + ' hits');
+
+  setup(1);
+  const window1 = 40 + (S.queue - 1) * S.waveGap;
+  ok('the wave finishes arriving in about three seconds', window1 / 60 < 4,
+     (window1 / 60).toFixed(1) + 's');
+
+  /* The wave must turn over on what is ON THE FIELD, not on stragglers that
+     have left it — gravity can capture a rock into an orbit it never escapes,
+     which would otherwise stall the wave forever. */
+  const G2 = run({ audio: true, W: 1600, H: 900 });
+  launch(G2);
+  const S2 = G2.get('S'), st2 = G2.get('step'), A = G2.get('ARENA');
+  S2.rocks.length = 0; S2.queue = 0;
+  // Slow, outbound, below escape speed: it will never be culled, and used to
+  // hold the wave open indefinitely.
+  S2.rocks.push(G2.get('makeRock')(1, 1, { x: 800 + A * 1.2, y: 450, vx: 0.05, vy: 0 }));
+  let n = 0;
+  while (S2.wave === 1 && n < 120) { st2(); n++; }
+  ok('a straggler off the field does not hold the wave open', S2.wave === 2, n + ' ticks');
+
+  // Anything still on the field does hold it, because you can still shoot it.
+  const G3 = run({ audio: true, W: 1600, H: 900 });
+  launch(G3);
+  const S3 = G3.get('S'), st3 = G3.get('step');
+  S3.rocks.length = 0; S3.queue = 0;
+  S3.rocks.push(G3.get('makeRock')(1, 1, { x: 950, y: 450, vx: 0, vy: 0 }));
+  for (let i = 0; i < 120; i++) st3();
+  ok('a rock still on the field keeps the wave open', S3.wave === 1);
+}
+
+section('sustained fire is limited by tapping, not by the game');
+{
+  const G = run({ audio: true, W: 1600, H: 900 });
+  launch(G);
+  const S = G.get('S'), C = G.get('CONFIG'), step = G.get('step');
+  const fire = G.get('launch');
+
+  /* REGRESSION. max is the number IN FLIGHT and a guided shot holds its slot
+     for the whole journey, so four slots meant a dead stop after three or
+     four taps at anything but point-blank range. */
+  S.shots.length = 0; S.ship.cool = 0;
+  let fired = 0;
+  for (let i = 0; i < 400; i++) {
+    if (fire({ x: 1300, y: 450 })) fired++;      // long shots, ~80 ticks each
+    step();
+  }
+  const perSecond = fired / (400 / 60);
+  ok('long-range fire sustains several shots a second', perSecond >= 4,
+     perSecond.toFixed(1) + ' shots/sec');
+  ok('the in-flight cap is generous enough not to be felt', C.missile.max >= 8,
+     String(C.missile.max));
+  ok('and the reload is well under a fifth of a second', C.missile.cooldown <= 8,
+     (C.missile.cooldown / 60).toFixed(2) + 's');
+}
+
 section('audio never breaks the game');
 {
   const silent = run();                    // no Web Audio at all

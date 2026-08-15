@@ -108,6 +108,17 @@ them — no browser needed. See `tools/make-icons.js` for the same technique.
   `touch-action:none` on the canvas is NOT enough on its own; the touchend
   handler that suppresses the default is what actually stops it. Buttons are
   exempt so their clicks still register. Do not remove it.
+- **A wave turns over on what is ON THE FIELD**, not on stragglers beyond it.
+  Gravity can capture a rock into an orbit it never escapes, which would stall
+  a wave forever; anything still out there is cleared when the next wave sets
+  up. Do not go back to requiring `rocks.length === 0`.
+- **`missile.max` is the number IN FLIGHT**, and a guided shot holds its slot
+  for the whole journey. At four slots a long intercept capped sustained fire
+  at 2.5 shots a second and produced a dead stop after three taps. Keep it
+  generous; tapping speed should be the only limit.
+- **Waves one and two send mediums**, not size 3. A medium splits once, a
+  large twice — wave one used to be forty-two objects on an Earth four hits
+  would finish. Anyone new has to survive wave one.
 - Guided missiles ignore gravity and carry fuel scaled to the distance of the
   point they were sent to. Both are deliberate: a designated intercept that
   gets dragged off course, or quietly expires short, makes designating

@@ -214,7 +214,7 @@ side of the orbit and out of the fight for a moment.
 node tests/collision.test.js
 ```
 
-86 assertions. Alongside the gameplay they pin the things most likely to erode:
+98 assertions. Alongside the gameplay they pin the things most likely to erode:
 that no torus machinery has crept in from SINGULARITY, that the ship never
 leaves its rail, that Earth's impact sound uses no pitched oscillator, and that
 the fixed timestep still holds at 60/144/30Hz.

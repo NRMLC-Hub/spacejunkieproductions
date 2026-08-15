@@ -232,10 +232,15 @@
 const CONFIG = {
   earth:   { r:46, integrity:100, regen:8 },      // regen: repaired per wave cleared
   ship:    { r:9, orbitMin:96, orbitMax:250, angular:0.030, climb:1.5 },
-  missile: { speed:6.2, life:170, r:3, cooldown:11, max:4, blast:54, turn:0.16 },
+  /* max is the number IN FLIGHT, and a guided shot holds its slot for the
+     whole journey — a 600-unit intercept is 1.6 seconds. At 4 slots that
+     capped the sustained rate at about 2.5 shots a second and produced a dead
+     stop after three or four taps. Ten slots means tapping speed is the only
+     limit, which is what it should be. */
+  missile: { speed:6.2, life:170, r:3, cooldown:7, max:10, blast:54, turn:0.16 },
   rock:    { sizes:{3:30, 2:19, 1:11},
              score:{3:25, 2:75, 1:225},           // a 3x ramp: finishing the
-             damage:{3:26, 2:15, 1:8} },          // split chain is what pays
+             damage:{3:18, 2:11, 1:6} },          // split chain is what pays
   gravity: { pull:5200, reach:2200 },             // Earth's well, felt everywhere
   spawnMargin: 90,                                // how far outside the view rocks appear
   cullRadius: 2.6,                                // x arena radius before a miss is gone
@@ -350,15 +355,24 @@ function burst(x, y, count, spread=2.6, life=34){
    Three dials. These change how the game feels far more than anything else
    in the file, so change them before changing anything else.              */
 function waveSetup(n){
-  const count = Math.min(4 + n*2, 26);
-  const speed = 1 + (n-1) * 0.11;
-  const gap   = Math.max(26, 90 - n*5);      // ticks between arrivals
+  /* Wave one has to be survivable by somebody who has never played it. It
+     used to send six size-3 rocks, which become forty-two objects once they
+     split, on an Earth that four of them would finish.
+
+     The first two waves now send MEDIUMS, which split once rather than twice,
+     so the field does not multiply the moment you engage. Size 3 arrives at
+     wave three, by which point you know what the blast radius does. */
+  const size  = n < 3 ? 2 : 3;
+  const count = Math.min(2 + n, 20);
+  const speed = 0.85 + (n-1) * 0.09;
+  const gap   = Math.max(22, 66 - n*3);      // ticks between arrivals
 
   S.rocks = []; S.shots = []; S.bits = [];
   S.queue = count;
   S.spawnTimer = 40;
   S.waveSpeed = speed;
   S.waveGap = gap;
+  S.waveSize = size;
   S.rocksAtStart = count;
 }
 
@@ -775,7 +789,7 @@ function update(){
 
   /* --- arrivals --- */
   if (S.queue > 0 && --S.spawnTimer <= 0){
-    S.rocks.push(makeRock(3, S.waveSpeed));
+    S.rocks.push(makeRock(S.waveSize, S.waveSpeed));
     S.queue--;
     S.spawnTimer = S.waveGap + randi(-8, 8);
   }
@@ -805,8 +819,14 @@ function update(){
   // be left sounding after a pause or a loss.
   SFX.alarm(S.mode === 'playing' && S.integrity <= 30 && S.integrity > 0);
 
-  /* --- wave end --- */
-  if (S.mode === 'playing' && S.rocks.length === 0 && S.queue === 0){
+  /* --- wave end ---
+     Turn over as soon as nothing ON THE FIELD can still reach Earth. Waiting
+     on a straggler that has already left the screen is dead time the player
+     cannot do anything about, and gravity can capture a rock into an orbit it
+     never escapes — which would stall the wave forever. Anything still out
+     there is cleared when the next wave sets up. */
+  const onField = r => Math.hypot(r.x-cx(), r.y-cy()) < ARENA;
+  if (S.mode === 'playing' && S.queue === 0 && !S.rocks.some(onField)){
     const before = S.integrity;
     S.integrity = clamp(S.integrity + CONFIG.earth.regen, 0, CONFIG.earth.integrity);
     if (S.integrity > before) SFX.repair();
