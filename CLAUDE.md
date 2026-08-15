@@ -15,9 +15,25 @@ This file is the working context.
 - **To run it: open `singularity.html`.** No build step, no server, no
   dependencies. Do not introduce a framework, bundler, or package manager unless
   explicitly asked.
-- `index.html` is a redirect to `singularity.html`, not a second copy. GitHub
-  Pages needs an `index.html` at the root; the game keeps its deliberate name.
-  A duplicate `index.html` was deleted once already — do not reintroduce one.
+- **Two games live here**: `singularity.html` and `collision.html`. Each is
+  self-contained and opens on its own. `index.html` is the front door that
+  links to both — it is a menu, never a copy of a game. A duplicate
+  `index.html` was deleted once already; do not reintroduce one.
+- **COLLISION is a separate file on purpose, not a mode.** SINGULARITY's world
+  is a torus: `wrapPos()`, `delta()` and `drawWrapped()` are threaded through
+  every distance check and every draw call, and there is no centre and no
+  outside. COLLISION needs the opposite — a bounded arena, a centre worth
+  defending, rocks arriving from beyond the edge. Those are contradictory
+  assumptions about space, and a mode flag in every distance calculation is
+  how a clean file becomes a miserable one. Its tests assert no wrap machinery
+  has crept in.
+- **Do not extract a shared engine yet.** Roughly half of each file is
+  infrastructure the other would want, and some of it is currently duplicated.
+  That is deliberate: with only two games, and one of them a week old, an
+  extraction now would draw the abstraction in the wrong shape. Wait until the
+  duplication actually hurts, then pull out what has proven common. A shared
+  `engine.js` is viable without a build step — a plain `<script src>` works
+  from `file://` — so nothing is being foreclosed.
 - **Icons are generated, not edited.** `node tools/make-icons.js` writes
   `icon-{32,180,192,512}.png`. Change the mark in that script and re-run it;
   never hand-edit the PNGs. Keep the art inside the middle 60% or a circular
@@ -30,7 +46,8 @@ This file is the working context.
   browser holds sensitive financial data and driving that live session risks
   exposing it. To show something works, give him a path or URL and let him open
   it.
-- **Verify headlessly instead**: `node tests/accounts.test.js`. The harness in
+- **Verify headlessly instead**: `node tests/accounts.test.js` for SINGULARITY,
+  `node tests/collision.test.js` for COLLISION. Both share one harness. The harness in
   `tests/harness.js` extracts the inline `<script>` and runs it in a Node `vm`
   context against stub DOM objects. This catches real bugs — it confirmed the
   fixed-timestep fix, and the accounts and PWA work were both built against it.

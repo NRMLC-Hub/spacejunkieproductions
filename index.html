@@ -1,27 +1,50 @@
 <!DOCTYPE html>
-<!-- GitHub Pages serves index.html at the root, but singularity.html is the
-     single source and keeps its name deliberately. This is a redirect, not a
-     second copy — there is nothing here to drift out of sync. -->
+<!-- GitHub Pages serves index.html at the root. This is the front door for
+     both games; each keeps its own deliberate filename. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>SINGULARITY</title>
-<meta http-equiv="refresh" content="0; url=singularity.html">
-<link rel="canonical" href="singularity.html">
-<meta name="description" content="A monochrome vector arcade shooter where black holes bend everything, including your own shots.">
+<title>Spacejunkie Productions</title>
+<meta name="description" content="Two monochrome vector arcade games.">
 <meta name="theme-color" content="#000000">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="icon-180.png">
 <style>
-  html,body{height:100%;margin:0;background:#000;color:#8a8a8a;
-            font-family:ui-monospace,Menlo,Consolas,monospace;
-            display:flex;align-items:center;justify-content:center}
-  a{color:#fff;letter-spacing:.26em;text-transform:uppercase;font-size:12px}
+  :root{--ink:#fff;--dim:#8a8a8a;--faint:#3a3a3a;
+        --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:#000;touch-action:manipulation}
+  body{font-family:var(--mono);color:var(--ink);display:flex;align-items:center;
+       justify-content:center;padding:24px;
+       padding:calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom))}
+  main{display:flex;flex-direction:column;align-items:center;gap:30px;text-align:center}
+  h1{font-size:11px;letter-spacing:.42em;text-indent:.42em;color:var(--dim);
+     text-transform:uppercase;font-weight:400}
+  .games{display:flex;flex-direction:column;gap:14px;width:min(420px,88vw)}
+  a.game{display:block;border:1px solid var(--faint);padding:20px 22px;text-decoration:none;
+         color:var(--ink);text-align:left}
+  a.game:hover,a.game:focus-visible{border-color:var(--ink);background:rgba(255,255,255,.06);outline:none}
+  .n{font-size:clamp(20px,5.5vw,30px);letter-spacing:.3em;text-indent:.3em}
+  .d{color:var(--dim);font-size:11px;letter-spacing:.14em;line-height:1.9;margin-top:9px}
+  footer{color:var(--faint);font-size:10px;letter-spacing:.24em;text-transform:uppercase}
 </style>
 </head>
 <body>
-  <a href="singularity.html">Enter SINGULARITY</a>
+<main>
+  <h1>Spacejunkie Productions</h1>
+  <div class="games">
+    <a class="game" href="singularity.html">
+      <div class="n">SINGULARITY</div>
+      <div class="d">Black holes bend everything in the field, including your own shots.</div>
+    </a>
+    <a class="game" href="collision.html">
+      <div class="n">COLLISION</div>
+      <div class="d">Earth is at the centre. You are the only thing in orbit.</div>
+    </a>
+  </div>
+  <footer>Open on a phone &middot; Add to Home Screen &middot; plays offline</footer>
+</main>
 </body>
 </html>

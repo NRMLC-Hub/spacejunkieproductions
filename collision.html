@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>COLLISION</title>
+<meta name="description" content="Earth is at the centre. You orbit it. Nothing gets through.">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="icon-32.png" sizes="32x32">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  :root{
+    --ink:#ffffff;
+    --dim:#8a8a8a;
+    --faint:#3a3a3a;
+    --warn:#ffffff;
+    --void:#000000;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  /* touch-action intersects DOWN the tree, so the root gets `manipulation` —
+     it permits scrolling and pinch but kills double-tap-to-zoom, which iOS
+     will otherwise do regardless of user-scalable=no. */
+  html,body{height:100%;background:var(--void);overflow:hidden;touch-action:manipulation}
+  body{
+    font-family:var(--mono);color:var(--ink);
+    display:flex;align-items:center;justify-content:center;
+    -webkit-tap-highlight-color:transparent;
+  }
+  /* dvh, not vh: on a phone vh includes the space under the address bar. */
+  #stage{position:relative;width:100%;height:100vh;height:100dvh;overflow:hidden}
+  canvas{display:block;width:100%;height:100%;touch-action:none}
+
+  #stage::after{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:
+      repeating-linear-gradient(to bottom, rgba(0,0,0,.28) 0 1px, transparent 1px 3px),
+      radial-gradient(ellipse at center, transparent 58%, rgba(0,0,0,.85) 100%);
+  }
+
+  /* ---- HUD ---- */
+  #hud{
+    position:absolute;inset:0;pointer-events:none;
+    padding:18px 22px;
+    padding:calc(18px + env(safe-area-inset-top)) calc(22px + env(safe-area-inset-right))
+            18px calc(22px + env(safe-area-inset-left));
+    display:flex;justify-content:space-between;align-items:flex-start;
+    font-size:13px;letter-spacing:.22em;text-transform:uppercase;
+  }
+  .hud-block{display:flex;flex-direction:column;gap:4px}
+  .hud-label{color:var(--dim);font-size:10px;letter-spacing:.3em}
+  .hud-value{font-size:17px;letter-spacing:.14em}
+  .hud-sub{color:var(--dim);font-size:10px;letter-spacing:.24em}
+  #hud .right{text-align:right;align-items:flex-end}
+
+  /* Earth integrity. A bar, because a number does not read at a glance while
+     something is falling toward you. */
+  #integrity{width:110px;height:7px;border:1px solid var(--dim);position:relative}
+  #integrityFill{position:absolute;inset:1px;right:auto;background:var(--ink);
+                 width:100%;transition:width .18s linear}
+  #integrity.low{animation:pulse .7s steps(2,start) infinite}
+  @keyframes pulse{50%{opacity:.35}}
+
+  /* ---- Overlays ---- */
+  .screen{
+    position:absolute;inset:0;display:none;
+    flex-direction:column;align-items:center;justify-content:safe center;
+    text-align:center;gap:22px;padding:24px;
+    padding:calc(24px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right))
+            calc(24px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));
+    background:rgba(0,0,0,.72);
+    overflow-y:auto;touch-action:manipulation;overscroll-behavior:contain;
+  }
+  .screen.show{display:flex}
+  .title{font-size:clamp(32px,8.5vw,70px);letter-spacing:.34em;text-indent:.34em;
+         text-shadow:0 0 22px rgba(255,255,255,.35)}
+  .rule{width:min(340px,70vw);height:1px;background:var(--faint)}
+  .sub{color:var(--dim);font-size:12px;letter-spacing:.26em;text-transform:uppercase;line-height:2.1}
+  .sub b{color:var(--ink);font-weight:400}
+  .big{font-size:clamp(24px,6vw,42px);letter-spacing:.28em;text-indent:.28em}
+  .prompt{font-size:12px;letter-spacing:.3em;text-transform:uppercase}
+  .blink{animation:blink 1.2s steps(2,start) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .keys{display:grid;grid-template-columns:auto auto;gap:8px 18px;font-size:11px;
+        letter-spacing:.16em;color:var(--dim);text-transform:uppercase}
+  .keys span:first-child{color:var(--ink)}
+  .row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .action{
+    background:transparent;border:1px solid var(--dim);color:var(--ink);
+    font-family:var(--mono);font-size:11px;letter-spacing:.26em;text-transform:uppercase;
+    padding:10px 18px;cursor:pointer;
+  }
+  .action:hover,.action:focus-visible{background:rgba(255,255,255,.14);border-color:var(--ink);outline:none}
+  .action.ghost{border-color:transparent;color:var(--dim);padding:6px 10px;letter-spacing:.2em}
+  .action.ghost:hover{color:var(--ink);text-decoration:underline}
+
+  /* Wave banner */
+  #banner{position:absolute;inset:0;display:none;flex-direction:column;
+          align-items:center;justify-content:center;gap:10px;pointer-events:none}
+  #banner.show{display:flex}
+  #banner .n{font-size:clamp(26px,6.5vw,48px);letter-spacing:.3em;text-indent:.3em}
+  #banner .m{font-size:12px;letter-spacing:.12em;color:var(--ink);
+             max-width:min(560px,86vw);line-height:1.75;padding:0 18px;text-align:center}
+  #banner .m:not(:empty)::before{content:"\2014 ";color:var(--dim)}
+
+  /* ---- Touch controls ---- */
+  #touch{position:absolute;inset:0;display:none;pointer-events:none;touch-action:none}
+  #touch.show{display:block}
+  .pad{position:absolute;bottom:26px;bottom:calc(26px + env(safe-area-inset-bottom));
+       pointer-events:auto;display:flex;gap:12px;align-items:center}
+  .pad.left{left:22px;left:calc(22px + env(safe-area-inset-left))}
+  .pad.right{right:22px;right:calc(22px + env(safe-area-inset-right))}
+  .btn{
+    width:60px;height:60px;border:1px solid var(--dim);border-radius:50%;
+    background:rgba(0,0,0,.35);color:var(--ink);
+    display:flex;align-items:center;justify-content:center;
+    font-size:12px;letter-spacing:.1em;
+    touch-action:none;user-select:none;-webkit-user-select:none;
+  }
+  .btn:active,.btn.on{background:rgba(255,255,255,.16)}
+  .btn.fire{width:76px;height:76px}
+  .stack{display:flex;flex-direction:column;gap:10px}
+  @media (prefers-reduced-motion: reduce){ .blink,#integrity.low{animation:none} }
+  @media (pointer: coarse){
+    .keys{display:none}
+    .btn{width:64px;height:64px}
+    .btn.fire{width:80px;height:80px}
+  }
+  @media (pointer: coarse) and (max-height:460px){
+    .screen{gap:12px}
+    .title{font-size:clamp(24px,6.5vw,40px)}
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div class="hud-block">
+      <div class="hud-label">Score</div>
+      <div class="hud-value" id="score">000000</div>
+      <div class="hud-sub" id="best"></div>
+    </div>
+    <div class="hud-block" style="align-items:center">
+      <div class="hud-label">Wave</div>
+      <div class="hud-value" id="wave">01</div>
+    </div>
+    <div class="hud-block right">
+      <div class="hud-label">Earth</div>
+      <div id="integrity"><div id="integrityFill"></div></div>
+      <div class="hud-sub" id="integrityPct">100%</div>
+    </div>
+  </div>
+
+  <div id="banner"><div class="n" id="bannerN">WAVE 01</div><div class="m" id="bannerM"></div></div>
+
+  <div class="screen show" id="titleScreen">
+    <div class="title">COLLISION</div>
+    <div class="rule"></div>
+    <div class="sub">
+      Earth is at the centre. You are the only thing in orbit.<br>
+      <b>Nothing gets through.</b>
+    </div>
+    <div class="keys">
+      <span>&#8592; &#8594; / A D</span><span>Orbit</span>
+      <span>&#8593; &#8595; / W S</span><span>Altitude</span>
+      <span>Space</span><span>Launch</span>
+      <span>P</span><span>Pause</span>
+      <span>M</span><span>Sound</span>
+    </div>
+    <div class="sub" id="bestLine"></div>
+    <div class="row">
+      <button class="action ghost" id="btnSound">Sound on</button>
+    </div>
+    <div class="prompt blink" id="startPrompt">Press Space to take station</div>
+  </div>
+
+  <div class="screen" id="pauseScreen">
+    <div class="big">HOLDING</div>
+    <div class="prompt">Press P to resume</div>
+  </div>
+
+  <div class="screen" id="overScreen">
+    <div class="big" id="overTitle">EARTH LOST</div>
+    <div class="rule"></div>
+    <div class="sub">Score <b id="finalScore">000000</b><br>Held for <b id="finalWave">1 wave</b></div>
+    <div class="sub" id="overNote"></div>
+    <div class="prompt blink">Press Space to take station again</div>
+  </div>
+
+  <div id="touch">
+    <div class="pad left">
+      <div class="btn" data-k="left">&#8592;</div>
+      <div class="btn" data-k="right">&#8594;</div>
+    </div>
+    <div class="pad right">
+      <div class="stack">
+        <div class="btn" data-k="up">&#9650;</div>
+        <div class="btn" data-k="down">&#9660;</div>
+      </div>
+      <div class="btn fire" data-k="fire">FIRE</div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =========================================================================
+   COLLISION — Earth is at the centre and you are the only thing in orbit.
+
+   Sibling to SINGULARITY, and deliberately NOT a mode inside it: that game's
+   world is a torus, where objects leaving one edge return on the other and
+   there is no centre and no outside. This one needs the opposite — a bounded
+   arena, a centre worth defending, and rocks arriving from beyond the edge.
+   Those are contradictory assumptions about space, so they get separate files.
+
+   What IS shared, for now by copy rather than by extraction: the fixed
+   timestep, world-units-vs-pixels, the audio approach, the touch and
+   safe-area handling. Once both games have settled, the genuinely common
+   parts are worth pulling into one place — but not before, or the abstraction
+   gets drawn in the wrong shape.
+
+   Tuning lives in CONFIG and waveSetup(). Read those two first.
+   ========================================================================= */
+
+const CONFIG = {
+  earth:   { r:46, integrity:100, regen:8 },      // regen: repaired per wave cleared
+  ship:    { r:9, orbitMin:96, orbitMax:250, angular:0.030, climb:1.5 },
+  missile: { speed:6.2, life:170, r:3, cooldown:11, max:4, blast:54 },
+  rock:    { sizes:{3:30, 2:19, 1:11},
+             score:{3:25, 2:75, 1:225},           // a 3x ramp: finishing the
+             damage:{3:26, 2:15, 1:8} },          // split chain is what pays
+  gravity: { pull:5200, reach:2200 },             // Earth's well, felt everywhere
+  spawnMargin: 90,                                // how far outside the view rocks appear
+  cullRadius: 2.6,                                // x arena radius before a miss is gone
+  shake: { impact:16, blast:5 },
+};
+
+const stage  = document.getElementById('stage');
+const canvas = document.getElementById('game');
+const ctx    = canvas.getContext('2d');
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* --------------------- world units vs screen pixels ---------------------
+   Same rule as SINGULARITY: W and H are WORLD UNITS and every length in
+   CONFIG is in the same units. VIEW is how many CSS pixels one unit takes.
+   Normalising the short axis keeps a phone playing like a desktop instead of
+   making every hazard enormous relative to the screen. Capped at 1, so a
+   large screen is one unit per pixel and unchanged.                        */
+const REF_MIN = 700;
+let W = 0, H = 0, DPR = 1, VIEW = 1, ARENA = 0;
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  const cw = canvas.clientWidth, ch = canvas.clientHeight;
+  canvas.width  = Math.floor(cw * DPR);
+  canvas.height = Math.floor(ch * DPR);
+  VIEW = Math.max(0.45, Math.min(1, Math.min(cw, ch) / REF_MIN));
+  W = cw / VIEW; H = ch / VIEW;
+  ARENA = Math.hypot(W/2, H/2);      // corner distance: the edge of the visible field
+  applyTransform();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+}
+function applyTransform(){ ctx.setTransform(DPR*VIEW, 0, 0, DPR*VIEW, 0, 0); }
+window.addEventListener('resize', () => { resize(); makeStars(); });
+
+/* ------------------------------ helpers --------------------------------
+   No torus here. Space is bounded and ordinary, so plain distances are
+   correct — this is the one place COLLISION must NOT copy SINGULARITY,
+   where every measurement has to go through the wrap seam.                */
+const TAU = Math.PI * 2;
+const rand  = (a,b) => a + Math.random()*(b-a);
+const randi = (a,b) => Math.floor(rand(a,b+1));
+const pick  = arr => arr[randi(0, arr.length-1)];
+const clamp = (v,a,b) => v < a ? a : (v > b ? b : v);
+const dist  = (a,b) => Math.hypot(b.x-a.x, b.y-a.y);
+const hit   = (a,b,pad=0) => dist(a,b) < a.r + b.r + pad;
+
+const cx = () => W/2, cy = () => H/2;
+const earth = () => ({ x:W/2, y:H/2, r:CONFIG.earth.r });
+
+/* ------------------------------ state ---------------------------------- */
+const S = {
+  mode:'title',            // title | playing | paused | over
+  ship:null, rocks:[], shots:[], bits:[], stars:[],
+  score:0, wave:1, integrity:CONFIG.earth.integrity,
+  queue:0, spawnTimer:0, shake:0, frame:0, flash:0,
+  rocksAtStart:0, best:0
+};
+
+/* ----------------------------- starfield -------------------------------- */
+function makeStars(){
+  S.stars = [];
+  const n = Math.round((W*VIEW * H*VIEW)/9000);
+  for (let i=0;i<n;i++) S.stars.push({ x:rand(0,W), y:rand(0,H), z:rand(.25,1) });
+}
+
+/* ------------------------------ spawning -------------------------------- */
+function makeShip(){
+  return { a:-Math.PI/2, orbit:(CONFIG.ship.orbitMin+CONFIG.ship.orbitMax)/2,
+           r:CONFIG.ship.r, cool:0, x:0, y:0 };
+}
+
+/* Rocks arrive from beyond the visible field, aimed near Earth but rarely
+   straight at it — a dead-on shot is boring, and a near-miss that Earth's
+   gravity curls back around is the most interesting thing in the game. */
+function makeRock(size, speedScale, at){
+  const r = CONFIG.rock.sizes[size];
+  let x, y, vx, vy;
+  if (at){
+    x = at.x; y = at.y; vx = at.vx; vy = at.vy;
+  } else {
+    const ang = rand(0, TAU);
+    const d = ARENA + CONFIG.spawnMargin;
+    x = cx() + Math.cos(ang)*d;
+    y = cy() + Math.sin(ang)*d;
+    // Aim at a point near Earth rather than at Earth itself.
+    const missBy = rand(-CONFIG.ship.orbitMax*0.7, CONFIG.ship.orbitMax*0.7);
+    const perp = ang + Math.PI/2;
+    const tx = cx() + Math.cos(perp)*missBy, ty = cy() + Math.sin(perp)*missBy;
+    const toward = Math.atan2(ty - y, tx - x);
+    const sp = rand(0.9, 1.5) * speedScale;
+    vx = Math.cos(toward)*sp; vy = Math.sin(toward)*sp;
+  }
+  const pts = [], n = randi(8,12);
+  for (let i=0;i<n;i++) pts.push(rand(.68,1.18));
+  return { x, y, vx, vy, r, size, a:rand(0,TAU), spin:rand(-.02,.02), pts };
+}
+
+function burst(x, y, count, spread=2.6, life=34){
+  for (let i=0;i<count;i++){
+    const a = rand(0,TAU), s = rand(.4, spread);
+    S.bits.push({ x, y, vx:Math.cos(a)*s, vy:Math.sin(a)*s,
+                  life:rand(life*.5, life), max:life, len:rand(2,7), a });
+  }
+}
+
+/* ---------------------------- wave structure ----------------------------
+   Three dials. These change how the game feels far more than anything else
+   in the file, so change them before changing anything else.              */
+function waveSetup(n){
+  const count = Math.min(4 + n*2, 26);
+  const speed = 1 + (n-1) * 0.11;
+  const gap   = Math.max(26, 90 - n*5);      // ticks between arrivals
+
+  S.rocks = []; S.shots = []; S.bits = [];
+  S.queue = count;
+  S.spawnTimer = 40;
+  S.waveSpeed = speed;
+  S.waveGap = gap;
+  S.rocksAtStart = count;
+}
+
+function waveBrief(n){
+  if (n === 1) return 'Commander, you have the watch. Nothing gets through.';
+  if (n === 2) return 'Second wave inbound.';
+  if (n === 3) return 'They are coming in heavier.';
+  if (n === 5) return 'Dense field. Mind your altitude.';
+  if (n % 10 === 0) return 'Wave ' + n + '. Earth is still here.';
+  if (n % 5 === 0)  return 'Wave ' + n + '. Hold the line.';
+  return pick([
+    'Wave ' + n + '. Inbound.',
+    'Wave ' + n + '. Stay on station.',
+    'Wave ' + n + '. Watch the strays.',
+    'Wave ' + n + '. Still holding.',
+  ]);
+}
+
+function startWave(n){
+  S.wave = n;
+  waveSetup(n);
+  showBanner('WAVE ' + String(n).padStart(2,'0'), waveBrief(n));
+  SFX.waveStart();
+  syncHud();
+}
+
+/* ------------------------------- audio ----------------------------------
+   Synthesised at runtime, as in SINGULARITY — no audio files, so this stays
+   one self-contained page. Everything fails soft: a browser with no Web
+   Audio plays the game silently rather than not at all.                   */
+const SFX = (() => {
+  const MUTE_KEY = 'cl.muted.v1';
+  let ctxA = null, master = null, noiseBuf = null, shaper = null;
+  let muted = false;
+  try { muted = localStorage.getItem(MUTE_KEY) === '1'; } catch (e) {}
+  let alarmOsc = null, alarmGain = null, alarmLfo = null;
+
+  function start(){
+    if (ctxA){ if (ctxA.state === 'suspended') ctxA.resume().catch(()=>{}); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try { ctxA = new AC(); } catch (e){ ctxA = null; return; }
+    master = ctxA.createGain();
+    master.gain.value = muted ? 0 : 0.32;
+    master.connect(ctxA.destination);
+
+    shaper = ctxA.createWaveShaper();
+    const curve = new Float32Array(1024);
+    for (let i=0;i<1024;i++){ const x=(i/1023)*2-1; curve[i]=Math.tanh(x*2.5); }
+    shaper.curve = curve; shaper.oversample = '4x';
+    shaper.connect(master);
+
+    const n = Math.floor(ctxA.sampleRate);
+    noiseBuf = ctxA.createBuffer(1, n, ctxA.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i=0;i<n;i++) d[i] = Math.random()*2 - 1;
+  }
+
+  function tone(o){
+    if (!ctxA || muted) return;
+    const t0 = ctxA.currentTime + (o.delay||0);
+    const osc = ctxA.createOscillator(), g = ctxA.createGain();
+    osc.type = o.type || 'square';
+    osc.frequency.setValueAtTime(o.freq, t0);
+    if (o.to) osc.frequency.exponentialRampToValueAtTime(Math.max(1,o.to), t0+o.dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(o.gain, t0 + (o.attack||0.008));
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
+    if (o.lp){
+      const f = ctxA.createBiquadFilter(); f.type='lowpass'; f.frequency.value=o.lp;
+      if (o.q) f.Q.value = o.q;
+      osc.connect(f).connect(g);
+    } else osc.connect(g);
+    g.connect(o.drive ? shaper : master);
+    osc.start(t0); osc.stop(t0 + o.dur + 0.03);
+  }
+
+  function noise(o){
+    if (!ctxA || muted) return;
+    const t0 = ctxA.currentTime + (o.delay||0);
+    const src = ctxA.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+    const f = ctxA.createBiquadFilter(); f.type = 'lowpass';
+    f.frequency.setValueAtTime(o.freq, t0);
+    if (o.to) f.frequency.exponentialRampToValueAtTime(Math.max(40,o.to), t0+o.dur);
+    const g = ctxA.createGain();
+    const a = o.attack || 0.001;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(o.gain, t0 + a);
+    if (o.hold) g.gain.setValueAtTime(o.gain, t0 + a + o.hold);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
+    src.connect(f).connect(g).connect(o.drive ? shaper : master);
+    src.start(t0); src.stop(t0 + o.dur + 0.03);
+  }
+
+  function release(node, gain, tail){
+    const t = ctxA.currentTime;
+    gain.gain.cancelScheduledValues(t);
+    gain.gain.setValueAtTime(gain.gain.value, t);
+    gain.gain.linearRampToValueAtTime(0.0001, t + tail);
+    node.stop(t + tail + 0.05);
+  }
+
+  return {
+    start,
+    get muted(){ return muted; },
+    toggleMute(){
+      muted = !muted;
+      try { localStorage.setItem(MUTE_KEY, muted ? '1' : '0'); } catch (e) {}
+      if (master && ctxA) master.gain.setTargetAtTime(muted ? 0 : 0.32, ctxA.currentTime, 0.03);
+      if (muted) this.alarm(false);
+      return muted;
+    },
+
+    launch(){
+      tone({ freq:330, to:95, dur:0.14, type:'triangle', gain:0.20, lp:1300 });
+      noise({ dur:0.07, freq:900, to:200, gain:0.11 });
+    },
+    // A detonation in vacuum, but this is an arcade game and silence is worse.
+    blast(){
+      noise({ dur:0.10, freq:6000, to:1100, gain:0.34 });
+      noise({ dur:0.55, freq:1500, to:120, gain:0.30, drive:true });
+      noise({ dur:0.30, freq:400,  to:60,  gain:0.22, delay:0.04, drive:true });
+    },
+    // Earth taking a hit. Bigger than anything else, and it should be.
+    impact(){
+      noise({ dur:0.16, freq:8000, to:1200, gain:0.50 });
+      noise({ dur:0.60, freq:2200, to:200,  gain:0.52, drive:true });
+      noise({ dur:2.20, freq:240,  to:28,   gain:0.60, drive:true, attack:0.05, hold:0.14 });
+      noise({ dur:1.30, freq:800,  to:42,   gain:0.36, delay:0.18, drive:true });
+      for (const d of [0.10, 0.22, 0.36, 0.55, 0.78]) {
+        noise({ dur:0.11, freq:4000, to:850, gain:0.13, delay:d });
+      }
+    },
+    waveStart(){ [370, 494].forEach((f,i) =>
+      tone({ freq:f, dur:0.22, type:'triangle', gain:0.11, delay:i*0.14 })); },
+    repair(){ [523, 659, 784].forEach((f,i) =>
+      tone({ freq:f, dur:0.15, type:'square', gain:0.11, delay:i*0.08 })); },
+
+    /* Held voice. Driven from state every tick rather than from an event, so
+       it cannot be stranded on through a pause or a game over. */
+    alarm(on){
+      if (!ctxA) return;
+      if (on && !alarmOsc){
+        alarmOsc = ctxA.createOscillator(); alarmOsc.type='sawtooth'; alarmOsc.frequency.value=196;
+        alarmLfo = ctxA.createOscillator(); alarmLfo.type='sine'; alarmLfo.frequency.value=3.4;
+        const depth = ctxA.createGain(); depth.gain.value = 14;
+        alarmLfo.connect(depth).connect(alarmOsc.frequency);
+        const f = ctxA.createBiquadFilter(); f.type='lowpass'; f.frequency.value=900;
+        alarmGain = ctxA.createGain(); alarmGain.gain.value = 0.0001;
+        alarmOsc.connect(f).connect(alarmGain).connect(master);
+        alarmOsc.start(); alarmLfo.start();
+        alarmGain.gain.linearRampToValueAtTime(0.05, ctxA.currentTime + 0.25);
+      } else if (!on && alarmOsc){
+        release(alarmOsc, alarmGain, 0.25);
+        alarmLfo.stop(ctxA.currentTime + 0.35);
+        alarmOsc = null; alarmLfo = null; alarmGain = null;
+      }
+    },
+    silence(){ this.alarm(false); },
+  };
+})();
+
+for (const evt of ['keydown','pointerdown','touchend']){
+  addEventListener(evt, () => SFX.start(), { passive:true });
+}
+
+/* ------------------------------- input ---------------------------------- */
+const keys = Object.create(null);
+const KEYMAP = {
+  ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right',
+  ArrowUp:'up', KeyW:'up', ArrowDown:'down', KeyS:'down', Space:'fire'
+};
+addEventListener('keydown', e => {
+  if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+  if (e.repeat) return;
+  const k = KEYMAP[e.code]; if (k) keys[k] = true;
+  if (e.code === 'KeyP') togglePause();
+  if (e.code === 'KeyM') toggleMute();
+  if (e.code === 'Space' && (S.mode === 'title' || S.mode === 'over')) newGame();
+});
+addEventListener('keyup', e => { const k = KEYMAP[e.code]; if (k) keys[k] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+const touchLayer = document.getElementById('touch');
+if (matchMedia('(pointer: coarse)').matches){
+  touchLayer.classList.add('show');
+  document.getElementById('startPrompt').textContent = 'Tap to take station';
+  touchLayer.querySelectorAll('.btn').forEach(btn => {
+    const k = btn.dataset.k;
+    const on  = e => { e.preventDefault(); keys[k] = true;  btn.classList.add('on'); };
+    const off = e => { e.preventDefault(); keys[k] = false; btn.classList.remove('on'); };
+    btn.addEventListener('pointerdown', on);
+    btn.addEventListener('pointerup', off);
+    btn.addEventListener('pointercancel', off);
+    btn.addEventListener('pointerleave', off);
+  });
+  // Bound to #stage: the overlays sit above the canvas and would swallow the
+  // tap before it ever reached it.
+  stage.addEventListener('pointerdown', e => {
+    if (e.target.closest('button, .btn')) return;
+    if (S.mode === 'title' || S.mode === 'over') newGame();
+  });
+}
+
+function togglePause(){
+  if (S.mode === 'playing'){ S.mode = 'paused'; show('pauseScreen', true); }
+  else if (S.mode === 'paused'){ S.mode = 'playing'; show('pauseScreen', false); }
+}
+function toggleMute(){
+  SFX.start();
+  const m = SFX.toggleMute();
+  document.getElementById('btnSound').textContent = m ? 'Sound off' : 'Sound on';
+  return m;
+}
+
+/* ------------------------------- UI glue -------------------------------- */
+const show = (id, on) => document.getElementById(id).classList.toggle('show', on);
+const pad6 = n => String(n).padStart(6,'0');
+
+const BEST_KEY = 'cl.best.v1';
+function loadBest(){ try { return Number(localStorage.getItem(BEST_KEY)) || 0; } catch(e){ return 0; } }
+function saveBest(v){ try { localStorage.setItem(BEST_KEY, String(v)); } catch(e){} }
+
+function syncHud(){
+  document.getElementById('score').textContent = pad6(S.score);
+  document.getElementById('wave').textContent  = String(S.wave).padStart(2,'0');
+  const pct = clamp(Math.round(S.integrity), 0, 100);
+  document.getElementById('integrityFill').style.width = pct + '%';
+  document.getElementById('integrityPct').textContent = pct + '%';
+  document.getElementById('integrity').classList.toggle('low', pct <= 30);
+  document.getElementById('best').textContent = S.best ? 'BEST ' + pad6(S.best) : '';
+}
+
+let bannerTimer = 0;
+function showBanner(n, msg){
+  document.getElementById('bannerN').textContent = n;
+  document.getElementById('bannerM').textContent = msg || '';
+  show('banner', true);
+  bannerTimer = msg ? 165 : 110;
+}
+
+function addScore(v){ S.score += v; syncHud(); }
+
+function newGame(){
+  S.score = 0; S.integrity = CONFIG.earth.integrity;
+  S.ship = makeShip(); S.shake = 0; S.flash = 0;
+  S.best = loadBest();
+  show('titleScreen', false); show('overScreen', false); show('pauseScreen', false);
+  startWave(1);
+  S.mode = 'playing';
+}
+
+function gameOver(){
+  S.mode = 'over';
+  SFX.silence();
+  const record = S.score > S.best;
+  if (record){ S.best = S.score; saveBest(S.best); }
+  document.getElementById('finalScore').textContent = pad6(S.score);
+  document.getElementById('finalWave').textContent =
+    S.wave + (S.wave === 1 ? ' wave' : ' waves');
+  document.getElementById('overNote').innerHTML =
+    record ? '<b>New personal best</b>' : 'Personal best <b>' + pad6(S.best) + '</b>';
+  show('overScreen', true);
+  syncHud();
+}
+
+/* ------------------------------- gravity --------------------------------
+   Earth attracts everything free. This is the same shared rule SINGULARITY
+   uses for its black holes, pointed the other way round: there it is the
+   hazard, here it is the reason the hazard reaches you at all.            */
+function applyGravity(o, strength = 1){
+  const e = earth();
+  const dx = e.x - o.x, dy = e.y - o.y;
+  const d2 = dx*dx + dy*dy;
+  if (d2 > CONFIG.gravity.reach * CONFIG.gravity.reach) return;
+  const d = Math.max(Math.sqrt(d2), CONFIG.earth.r);
+  const f = (CONFIG.gravity.pull * strength) / (d*d);
+  o.vx += (dx/d) * f * 0.016;
+  o.vy += (dy/d) * f * 0.016;
+}
+
+/* -------------------------------- update -------------------------------- */
+function update(){
+  S.frame++;
+  if (bannerTimer > 0 && --bannerTimer === 0) show('banner', false);
+  if (S.shake > 0) S.shake *= 0.9;
+  if (S.flash > 0) S.flash--;
+
+  /* --- ship: on a rail, not flying free --- */
+  const sh = S.ship, C = CONFIG.ship;
+  if (sh){
+    if (keys.left)  sh.a -= C.angular;
+    if (keys.right) sh.a += C.angular;
+    if (keys.up)    sh.orbit += C.climb;
+    if (keys.down)  sh.orbit -= C.climb;
+    sh.orbit = clamp(sh.orbit, C.orbitMin, C.orbitMax);
+    sh.x = cx() + Math.cos(sh.a) * sh.orbit;
+    sh.y = cy() + Math.sin(sh.a) * sh.orbit;
+    if (sh.cool > 0) sh.cool--;
+
+    if (keys.fire && sh.cool === 0 && S.shots.length < CONFIG.missile.max){
+      // Launched radially outward: you cannot aim, only take station. That
+      // constraint IS the game — getting between Earth and the threat.
+      S.shots.push({
+        x: sh.x + Math.cos(sh.a)*12, y: sh.y + Math.sin(sh.a)*12,
+        vx: Math.cos(sh.a)*CONFIG.missile.speed,
+        vy: Math.sin(sh.a)*CONFIG.missile.speed,
+        life: CONFIG.missile.life, r: CONFIG.missile.r
+      });
+      sh.cool = CONFIG.missile.cooldown;
+      SFX.launch();
+    }
+  }
+
+  /* --- missiles: gravity bends these too, so long shots curve --- */
+  for (let i=S.shots.length-1;i>=0;i--){
+    const b = S.shots[i];
+    applyGravity(b, 0.45);
+    b.x += b.vx; b.y += b.vy;
+    const far = Math.hypot(b.x-cx(), b.y-cy());
+    if (--b.life <= 0 || far > ARENA*1.4) S.shots.splice(i,1);
+  }
+
+  /* --- arrivals --- */
+  if (S.queue > 0 && --S.spawnTimer <= 0){
+    S.rocks.push(makeRock(3, S.waveSpeed));
+    S.queue--;
+    S.spawnTimer = S.waveGap + randi(-8, 8);
+  }
+
+  /* --- rocks --- */
+  for (let i=S.rocks.length-1;i>=0;i--){
+    const r = S.rocks[i];
+    applyGravity(r);
+    r.x += r.vx; r.y += r.vy; r.a += r.spin;
+    // A miss is only gone once it is well clear. Anything nearer than that
+    // is still on a leash and may be curling back around.
+    if (Math.hypot(r.x-cx(), r.y-cy()) > ARENA*CONFIG.cullRadius) S.rocks.splice(i,1);
+  }
+
+  /* --- particles --- */
+  for (let i=S.bits.length-1;i>=0;i--){
+    const p = S.bits[i];
+    p.x += p.vx; p.y += p.vy; p.vx *= .97; p.vy *= .97;
+    if (--p.life <= 0) S.bits.splice(i,1);
+  }
+
+  collisions();
+
+  // The alarm is set from state every tick, never from an event, so it cannot
+  // be left sounding after a pause or a loss.
+  SFX.alarm(S.mode === 'playing' && S.integrity <= 30 && S.integrity > 0);
+
+  /* --- wave end --- */
+  if (S.mode === 'playing' && S.rocks.length === 0 && S.queue === 0){
+    const before = S.integrity;
+    S.integrity = clamp(S.integrity + CONFIG.earth.regen, 0, CONFIG.earth.integrity);
+    if (S.integrity > before) SFX.repair();
+    startWave(S.wave + 1);
+  }
+}
+
+function detonate(x, y){
+  burst(x, y, 16, 3.0, 30);
+  S.shake = Math.max(S.shake, CONFIG.shake.blast);
+  SFX.blast();
+  // Everything inside the blast goes, which is what makes taking station in
+  // front of a cluster worth more than picking rocks off one at a time.
+  for (let j=S.rocks.length-1;j>=0;j--){
+    const r = S.rocks[j];
+    if (Math.hypot(r.x-x, r.y-y) < CONFIG.missile.blast + r.r) splitRock(j);
+  }
+}
+
+function collisions(){
+  // missiles -> rocks
+  for (let i=S.shots.length-1;i>=0;i--){
+    const b = S.shots[i];
+    for (let j=S.rocks.length-1;j>=0;j--){
+      if (hit(b, S.rocks[j])){
+        const bx = b.x, by = b.y;
+        S.shots.splice(i,1);
+        detonate(bx, by);
+        break;
+      }
+    }
+  }
+
+  // rocks -> Earth
+  const e = earth();
+  for (let i=S.rocks.length-1;i>=0;i--){
+    const r = S.rocks[i];
+    if (hit(r, e)){
+      S.integrity -= CONFIG.rock.damage[r.size];
+      burst(r.x, r.y, 22 + r.size*8, 3.6, 42);
+      S.shake = CONFIG.shake.impact;
+      S.flash = 8;
+      SFX.impact();
+      S.rocks.splice(i,1);
+      syncHud();
+      if (S.integrity <= 0){ S.integrity = 0; syncHud(); return gameOver(); }
+    }
+  }
+
+  // rocks -> ship. Losing the ship is not fatal; it costs you the station.
+  if (S.ship){
+    for (let i=S.rocks.length-1;i>=0;i--){
+      if (hit(S.ship, S.rocks[i])){
+        burst(S.ship.x, S.ship.y, 18, 3.0, 34);
+        S.shake = Math.max(S.shake, 10);
+        SFX.blast();
+        splitRock(i);
+        // Knocked to the far side of its orbit, and briefly out of the fight.
+        S.ship.a += Math.PI;
+        S.ship.cool = 70;
+        break;
+      }
+    }
+  }
+}
+
+function splitRock(idx){
+  const r = S.rocks[idx];
+  if (!r) return;
+  addScore(CONFIG.rock.score[r.size]);
+  burst(r.x, r.y, r.size*6, 2.4, 30);
+  S.rocks.splice(idx,1);
+  if (r.size > 1){
+    for (let i=0;i<2;i++){
+      const ang = Math.atan2(r.vy, r.vx) + rand(-0.7, 0.7);
+      const sp = Math.hypot(r.vx, r.vy) * rand(0.9, 1.2);
+      const child = makeRock(r.size-1, 1, {
+        x:r.x, y:r.y, vx:Math.cos(ang)*sp, vy:Math.sin(ang)*sp
+      });
+      S.rocks.push(child);
+    }
+  }
+}
+
+/* -------------------------------- render -------------------------------- */
+function stroke(width, alpha){
+  ctx.lineWidth = width / VIEW;    // width is CSS pixels, held constant at any zoom
+  ctx.strokeStyle = alpha < 1 ? `rgba(255,255,255,${alpha})` : '#fff';
+}
+
+function draw(){
+  applyTransform();
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0,0,W,H);
+
+  if (S.shake > .4 && !reduceMotion){
+    ctx.translate(rand(-S.shake,S.shake), rand(-S.shake,S.shake));
+  }
+
+  drawStars();
+  drawEarth();
+  for (const r of S.rocks) drawRock(r);
+  drawShots();
+  for (const p of S.bits) drawBit(p);
+  if (S.ship && S.mode !== 'over') drawShip(S.ship);
+
+  if (S.flash > 0 && !reduceMotion){
+    ctx.fillStyle = `rgba(255,255,255,${S.flash/40})`;
+    ctx.fillRect(0,0,W,H);
+  }
+}
+
+function drawStars(){
+  for (const s of S.stars){
+    ctx.fillStyle = `rgba(255,255,255,${s.z*0.55})`;
+    const px = (s.z > .75 ? 2 : 1) / VIEW;
+    ctx.fillRect(s.x, s.y, px, px);
+  }
+}
+
+/* Earth: a ring, a terminator arc, and a grid that thins as it takes damage.
+   The planet showing its wounds is the whole readout — the HUD bar is a
+   second opinion, not the primary one. */
+function drawEarth(){
+  const e = earth(), R = CONFIG.earth.r;
+  const health = clamp(S.integrity / CONFIG.earth.integrity, 0, 1);
+
+  ctx.beginPath(); ctx.arc(e.x, e.y, R, 0, TAU);
+  ctx.fillStyle = '#000'; ctx.fill();
+
+  stroke(1.8, 1);
+  ctx.beginPath(); ctx.arc(e.x, e.y, R, 0, TAU); ctx.stroke();
+
+  // meridians and parallels, fading as integrity drops
+  stroke(1, 0.18 + health*0.5);
+  for (let i=1;i<=3;i++){
+    const rx = R * (i/4) * 2 - R*0.0;
+    ctx.beginPath();
+    ctx.ellipse(e.x, e.y, Math.abs(R*Math.cos(i*Math.PI/8)), R, 0, 0, TAU);
+    ctx.stroke();
+  }
+  for (const f of [-0.55, 0, 0.55]){
+    const ry = R*Math.sqrt(Math.max(0, 1 - f*f));
+    ctx.beginPath();
+    ctx.ellipse(e.x, e.y + R*f, ry, ry*0.22, 0, 0, TAU);
+    ctx.stroke();
+  }
+
+  // atmosphere, thinning with damage
+  stroke(1, 0.08 + health*0.22);
+  ctx.beginPath(); ctx.arc(e.x, e.y, R + 7, 0, TAU); ctx.stroke();
+
+  // the orbit band you are allowed to occupy
+  stroke(1, 0.07);
+  ctx.setLineDash([5, 14]);
+  ctx.beginPath(); ctx.arc(e.x, e.y, CONFIG.ship.orbitMin, 0, TAU); ctx.stroke();
+  ctx.beginPath(); ctx.arc(e.x, e.y, CONFIG.ship.orbitMax, 0, TAU); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawRock(r){
+  ctx.save();
+  ctx.translate(r.x, r.y); ctx.rotate(r.a);
+  stroke(1.5, 1);
+  ctx.beginPath();
+  const n = r.pts.length;
+  for (let i=0;i<n;i++){
+    const ang = (i/n)*TAU, rad = r.r * r.pts[i];
+    const x = Math.cos(ang)*rad, y = Math.sin(ang)*rad;
+    i ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
+  }
+  ctx.closePath(); ctx.stroke();
+  ctx.restore();
+}
+
+// The station: a blunt wedge with a launch rail, always facing outward.
+function drawShip(sh){
+  ctx.save();
+  ctx.translate(sh.x, sh.y); ctx.rotate(sh.a);
+  stroke(1.6, sh.cool > 40 ? 0.35 : 1);      // dimmed while knocked out
+  ctx.beginPath();
+  ctx.moveTo(13, 0); ctx.lineTo(-2, 8); ctx.lineTo(-9, 4);
+  ctx.lineTo(-9, -4); ctx.lineTo(-2, -8);
+  ctx.closePath(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-2, 0); ctx.lineTo(11, 0); ctx.stroke();
+  ctx.restore();
+}
+
+function drawShots(){
+  for (const b of S.shots){
+    stroke(1.6, 1);
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(b.x - b.vx*1.9, b.y - b.vy*1.9);
+    ctx.stroke();
+  }
+}
+
+function drawBit(p){
+  const a = Math.max(0, p.life / p.max);
+  stroke(1.2, a);
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y);
+  ctx.lineTo(p.x - Math.cos(p.a)*p.len, p.y - Math.sin(p.a)*p.len);
+  ctx.stroke();
+}
+
+/* ----------------------------- title demo ------------------------------- */
+function idleScene(){
+  if (S.rocks.length < 3 && Math.random() < 0.02) S.rocks.push(makeRock(3, 1));
+  for (let i=S.rocks.length-1;i>=0;i--){
+    const r = S.rocks[i];
+    applyGravity(r);
+    r.x += r.vx; r.y += r.vy; r.a += r.spin;
+    const d = Math.hypot(r.x-cx(), r.y-cy());
+    if (d > ARENA*CONFIG.cullRadius || d < CONFIG.earth.r + r.r) S.rocks.splice(i,1);
+  }
+  for (let i=S.bits.length-1;i>=0;i--){
+    const p = S.bits[i];
+    p.x += p.vx; p.y += p.vy; p.vx *= .97; p.vy *= .97;
+    if (--p.life <= 0) S.bits.splice(i,1);
+  }
+}
+
+/* ------------------------------ main loop -------------------------------
+   Fixed timestep. The simulation only advances in 1/60s ticks, so a 144Hz
+   screen plays exactly like a 60Hz one. Every value in CONFIG that measures
+   time is in ticks. MAX_CATCHUP drops missed time after a stall rather than
+   replaying it, so a backgrounded tab does not fast-forward on return.    */
+const TICK = 1000 / 60;
+const MAX_CATCHUP = 5;
+let lastTime = 0, accumulator = 0;
+
+function step(){
+  if (S.mode === 'playing'){ update(); return; }
+  SFX.silence();
+  if (S.mode === 'title') idleScene();
+  else if (S.mode === 'over'){
+    for (let i=S.bits.length-1;i>=0;i--){
+      const p = S.bits[i];
+      p.x += p.vx; p.y += p.vy; p.vx *= .97; p.vy *= .97;
+      if (--p.life <= 0) S.bits.splice(i,1);
+    }
+  }
+}
+
+function loop(now){
+  requestAnimationFrame(loop);
+  if (!lastTime) lastTime = now;
+  accumulator += Math.min(now - lastTime, TICK * MAX_CATCHUP);
+  lastTime = now;
+  let ticks = 0;
+  while (accumulator >= TICK && ticks < MAX_CATCHUP){ step(); accumulator -= TICK; ticks++; }
+  draw();
+}
+
+document.getElementById('btnSound').addEventListener('click', toggleMute);
+
+resize();
+makeStars();
+S.best = loadBest();
+document.getElementById('btnSound').textContent = SFX.muted ? 'Sound off' : 'Sound on';
+document.getElementById('bestLine').innerHTML =
+  S.best ? 'Best <b>' + pad6(S.best) + '</b>' : 'No watch stood yet';
+syncHud();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -1,3 +1,13 @@
+# Spacejunkie Productions
+
+Two monochrome vector arcade games. Both are single self-contained HTML files:
+no build step, no server, no dependencies, no package manager. Open either one
+and it runs, offline, straight off the disk.
+
+**[Play them](https://nrmlc-hub.github.io/spacejunkieproductions/)**
+
+---
+
 # SINGULARITY
 
 A monochrome vector arcade shooter built around gravity. Every black hole in the
@@ -160,6 +170,50 @@ Worth knowing before editing:
 - One `applyGravity()` serves every free body. That single shared rule is why the
   holes read as part of the world rather than as decorative hazards. Keep it that
   way when adding features.
+
+---
+
+# COLLISION
+
+Earth is at the centre. You are the only thing in orbit, and nothing gets
+through.
+
+Your station rides a ring around the planet — left and right move you around
+it, up and down change altitude. You cannot aim: missiles launch straight
+outward, so the whole game is getting *between* Earth and whatever is coming.
+They detonate with a blast radius, so taking station in front of a cluster is
+worth far more than picking rocks off one at a time.
+
+Earth's gravity is what makes it a game rather than a shooting gallery. It
+pulls every rock inward, so nothing travels in a straight line, and a near miss
+does not leave — it swings around and comes back at you from a new angle.
+
+| Key | |
+| --- | --- |
+| `←` `→` / `A` `D` | Orbit |
+| `↑` `↓` / `W` `S` | Altitude |
+| `Space` | Launch |
+| `P` | Pause |
+| `M` | Sound on/off |
+
+Earth has an integrity bar, and the planet itself shows the damage — its grid
+and atmosphere thin out as it takes hits, which is meant to be the primary
+readout with the bar as a second opinion. Clearing a wave repairs it a little.
+Getting hit by a rock does not end your run; it knocks your station to the far
+side of the orbit and out of the fight for a moment.
+
+```
+node tests/collision.test.js
+```
+
+61 assertions. Alongside the gameplay they pin the things most likely to erode:
+that no torus machinery has crept in from SINGULARITY, that the ship never
+leaves its rail, that Earth's impact sound uses no pitched oscillator, and that
+the fixed timestep still holds at 60/144/30Hz.
+
+**COLLISION is a separate file, not a mode inside SINGULARITY**, and the reason
+is in `CLAUDE.md`: that game's world is a torus with no centre and no outside,
+which is the exact opposite of what this one needs.
 
 ---
 
