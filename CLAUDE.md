@@ -93,6 +93,15 @@ Two invariants:
   start a held voice from an event handler — that is how a note gets stranded
   through a pause. Tests assert a pause and a death both release everything.
 
+**A downward pitch sweep on a sine is a kick drum, not an explosion.** The ship
+death sounded like a drum through two rewrites because its body layer was
+exactly that. It is now built entirely from noise pushed through a downward
+lowpass sweep — weight without any definite pitch — with debris bursts at
+uneven offsets, because a drum decays smoothly and a blast does not. **Do not
+add a pitched oscillator to `shipDeath`**; a test fails if anyone does.
+`rockBoom` and `alienBoom` still carry a tone on purpose — a sharper, more
+percussive crack keeps them distinct from the ship going up.
+
 The heartbeat is paced in ticks like everything else, so it stays frame-rate
 independent. Mute lives in `localStorage` under `sj.muted.v1` — it is a device
 setting, deliberately not part of a pilot account.

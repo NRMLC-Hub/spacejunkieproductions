@@ -298,13 +298,15 @@ section('sound');
   // Crack + body + tail. A single noise sweep reads as a whoosh, not a bang.
   A.audio.length = 0;
   SFX.shipDeath();
-  ok('the ship explosion is layered, not one sweep',
-     A.audio.filter(x => x === 'osc:start').length >= 2 &&
-     A.audio.filter(x => x === 'src:start').length >= 3,
+  ok('the ship explosion is many layers, not one sweep',
+     A.audio.filter(x => x === 'src:start').length >= 8,
+     A.audio.filter(x => x === 'src:start').length + ' noise layers');
+  /* The one that matters. A pitched oscillator sweeping downward is the
+     textbook kick-drum recipe, and it is exactly why this used to sound like
+     a drum. Explosions are broadband noise with no definite pitch. */
+  ok('the ship explosion uses NO pitched oscillator',
+     A.audio.filter(x => x === 'osc:start').length === 0,
      A.audio.join(','));
-  ok('the ship explosion is two staggered detonations, not one',
-     A.audio.filter(x => x.endsWith(':start')).length >= 6,
-     A.audio.filter(x => x.endsWith(':start')).length + ' voices');
   ok('a soft-clipper exists for the driven layers',
      A.sandbox._audioCtx && typeof A.sandbox._audioCtx.createWaveShaper === 'function');
   A.audio.length = 0; SFX.shipDeath();

@@ -656,7 +656,13 @@ const SFX = (() => {
     f.frequency.setValueAtTime(o.freq, t0);
     if (o.to) f.frequency.exponentialRampToValueAtTime(Math.max(40, o.to), t0 + o.dur);
     const g = ctx.createGain();
-    g.gain.setValueAtTime(o.gain, t0);
+    // attack/hold shape the envelope. A noise burst that jumps to full gain
+    // and decays smoothly is a percussion hit; a blast swells slightly and
+    // then sustains before it falls away.
+    const a = o.attack || 0.001;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(o.gain, t0 + a);
+    if (o.hold) g.gain.setValueAtTime(o.gain, t0 + a + o.hold);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
     src.connect(f).connect(g).connect(o.drive ? shaper : master);
     src.start(t0); src.stop(t0 + o.dur + 0.03);
@@ -709,23 +715,33 @@ const SFX = (() => {
          tail   long filtered noise, in two overlapping layers so the decay is
                 irregular instead of a clean machine sweep
        This is the biggest sound in the game by some margin. It should be. */
+    /* NOT ONE PITCHED OSCILLATOR IN HERE, deliberately.
+
+       This read as a drum for a precise reason: the body used to be a sine
+       sweeping 220Hz down to 24Hz, and a downward pitch sweep on a sine IS
+       the textbook synthesised kick drum. Any audible definite pitch turns a
+       blast into percussion, and no amount of layering on top undoes it.
+
+       An explosion is broadband noise whose spectrum collapses downward, with
+       an irregular tail. So the weight here comes from noise pushed through a
+       lowpass that sweeps down — weight without pitch — and the tail is
+       broken up by debris bursts at uneven offsets. A drum decays smoothly;
+       that unevenness is most of what separates the two by ear, especially on
+       a phone speaker that cannot reproduce the bottom octave at all. */
     shipDeath(){
-      // First detonation. Driven through the soft-clipper so the low end has
-      // harmonics rather than being a clean sine thump.
-      noise({ dur:0.13, freq:9000, to:1500, gain:0.50 });                                   // crack
-      tone({ freq:220, to:24, dur:0.60, type:'sine', gain:0.62, lp:520, q:4, drive:true }); // body
-      noise({ dur:1.60, freq:1400, to:45, gain:0.46, drive:true });                         // rumble
+      noise({ dur:0.16, freq:9000, to:1200, gain:0.55 });                     // rupture
+      noise({ dur:0.55, freq:2400, to:220,  gain:0.55, drive:true });         // blast front
+      noise({ dur:2.00, freq:260,  to:32,   gain:0.60, drive:true,
+              attack:0.05, hold:0.12 });                                      // body, no pitch
 
-      /* Second detonation, a beat later and deeper — the hull letting go
-         after the initial rupture. Two staggered impacts read as an
-         explosion; a single one always reads as a hit. This is what the
-         previous version was missing more than any amount of extra gain. */
-      noise({ dur:0.11, freq:5000, to:900, gain:0.30, delay:0.13 });
-      tone({ freq:120, to:18, dur:1.10, type:'triangle', gain:0.44, lp:400, q:3,
-             delay:0.14, drive:true });
-      noise({ dur:1.10, freq:700, to:38, gain:0.30, delay:0.17, drive:true });
+      // The hull letting go, a beat after the rupture.
+      noise({ dur:0.35, freq:5200, to:600,  gain:0.32, delay:0.16 });
+      noise({ dur:1.40, freq:900,  to:45,   gain:0.40, delay:0.20, drive:true });
 
-      noise({ dur:0.90, freq:3400, to:200, gain:0.17, delay:0.10 });                        // debris
+      // Debris, at uneven offsets. Regular spacing would read as a machine.
+      for (const d of [0.09, 0.19, 0.31, 0.46, 0.64, 0.88]){
+        noise({ dur:0.10, freq:4200, to:900, gain:0.13, delay:d });
+      }
     },
     extraLife(){ [660, 880, 1320].forEach((f, i) =>
       tone({ freq:f, dur:0.16, type:'square', gain:0.12, delay:i*0.09 })); },
