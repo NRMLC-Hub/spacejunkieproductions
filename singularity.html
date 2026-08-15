@@ -231,6 +231,7 @@
       <span>&#8593; / W</span><span>Thrust</span>
       <span>Space</span><span>Fire</span>
       <span>P</span><span>Pause</span>
+      <span>M</span><span>Sound</span>
     </div>
     <div class="board" id="titleBoard"></div>
     <div class="sub" id="pilotLine"></div>
@@ -238,6 +239,7 @@
       <button class="action" id="btnSignIn">Sign in</button>
       <button class="action" id="btnSignUp">New pilot</button>
       <button class="action ghost" id="btnSignOut" hidden>Sign out</button>
+      <button class="action ghost" id="btnSound">Sound on</button>
     </div>
     <div class="warn" id="storageWarn" hidden></div>
     <div class="prompt blink" id="startPrompt">Press Space to launch</div>
@@ -416,7 +418,8 @@ const S = {
   bits:[], stars:[],
   score:0, lives:CONFIG.startLives, level:1,
   nextLife:CONFIG.extraLife,
-  alienQueue:0, alienTimer:0, respawnTimer:0, shake:0, frame:0
+  alienQueue:0, alienTimer:0, respawnTimer:0, shake:0, frame:0,
+  rocksAtStart:0, beatTimer:0, beatLow:false
 };
 
 /* ------------------------------ starfield ------------------------------- */
@@ -520,12 +523,15 @@ function levelSetup(n){
   for (let i=0;i<rockCount;i++) S.rocks.push(makeRock(3, undefined, undefined, rockSpeed));
   S.alienQueue = alienCount;
   S.alienTimer = Math.max(150, 420 - n*26);
+  S.rocksAtStart = S.rocks.length;   // the heartbeat paces off how much is left
+  S.beatTimer = 0;
 }
 
 function startLevel(n){
   S.level = n;
   levelSetup(n);
   showBanner('SECTOR ' + String(n).padStart(2,'0'), levelTagline(n));
+  SFX.levelStart();
   syncHud();
 }
 
@@ -536,6 +542,200 @@ function levelTagline(n){
   if (n === 5) return 'Interceptors inbound';
   if (n % 5 === 0) return 'Deep void';
   return pick(['Drift zone','Collapsed lane','Dead channel','Wreck line','Silent sector']);
+}
+
+/* ------------------------------- audio ----------------------------------
+   Every sound is synthesised at runtime. There are no audio files, because
+   there is no asset pipeline to ship them through and one HTML file is the
+   whole point — and because the machine this game descends from made its
+   noises with oscillators and a noise generator too.
+
+   Two rules hold this together:
+
+   1. NOTHING here may break the game. Browsers refuse to create an
+      AudioContext before a user gesture, some environments have no Web Audio
+      at all, and a headless test has neither. Every entry point returns
+      quietly when there is no context, so a silent game is still a game.
+   2. Continuous voices — thrust, the alien hum, the gravity drone — are
+      driven by state, not by events. `step()` silences all three whenever the
+      mode is not 'playing', so a pause or a death can never strand a note.  */
+const SFX = (() => {
+  const MUTE_KEY = 'sj.muted.v1';
+  let ctx = null, master = null, noiseBuf = null;
+  let muted = false;
+  try { muted = localStorage.getItem(MUTE_KEY) === '1'; } catch (e) {}
+
+  let thrustSrc = null, thrustGain = null;
+  let ufoOsc = null, ufoLfo = null, ufoGain = null;
+  let droneOsc = null, droneFilt = null, droneGain = null;
+
+  /* Called on every gesture. Browsers will not let a page make noise before
+     one, and iOS additionally suspends the context when the tab is hidden, so
+     this both creates and revives. Cheap and idempotent after the first. */
+  function start(){
+    if (ctx){ if (ctx.state === 'suspended') ctx.resume().catch(() => {}); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try { ctx = new AC(); } catch (e){ ctx = null; return; }
+
+    master = ctx.createGain();
+    master.gain.value = muted ? 0 : 0.32;
+    master.connect(ctx.destination);
+
+    // One second of white noise, reused by every explosion and the thruster.
+    const n = Math.floor(ctx.sampleRate);
+    noiseBuf = ctx.createBuffer(1, n, ctx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+
+    // The gravity well. Runs forever at zero gain; pull() opens it up.
+    droneOsc  = ctx.createOscillator(); droneOsc.type = 'sawtooth'; droneOsc.frequency.value = 38;
+    droneFilt = ctx.createBiquadFilter(); droneFilt.type = 'lowpass'; droneFilt.frequency.value = 90;
+    droneGain = ctx.createGain(); droneGain.gain.value = 0;
+    droneOsc.connect(droneFilt).connect(droneGain).connect(master);
+    droneOsc.start();
+  }
+
+  function tone(o){
+    if (!ctx || muted) return;
+    const t0 = ctx.currentTime + (o.delay || 0);
+    const osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.type = o.type || 'square';
+    osc.frequency.setValueAtTime(o.freq, t0);
+    if (o.to) osc.frequency.exponentialRampToValueAtTime(Math.max(1, o.to), t0 + o.dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(o.gain, t0 + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
+    osc.connect(g).connect(master);
+    osc.start(t0); osc.stop(t0 + o.dur + 0.03);
+  }
+
+  function noise(o){
+    if (!ctx || muted) return;
+    const t0 = ctx.currentTime + (o.delay || 0);
+    const src = ctx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass';
+    f.frequency.setValueAtTime(o.freq, t0);
+    if (o.to) f.frequency.exponentialRampToValueAtTime(Math.max(40, o.to), t0 + o.dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(o.gain, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
+    src.connect(f).connect(g).connect(master);
+    src.start(t0); src.stop(t0 + o.dur + 0.03);
+  }
+
+  // Fade a held voice out and stop it, without clicking.
+  function release(node, gain, tail){
+    const t = ctx.currentTime;
+    gain.gain.cancelScheduledValues(t);
+    gain.gain.setValueAtTime(gain.gain.value, t);
+    gain.gain.linearRampToValueAtTime(0.0001, t + tail);
+    node.stop(t + tail + 0.05);
+  }
+
+  return {
+    start,
+    get muted(){ return muted; },
+    toggleMute(){
+      muted = !muted;
+      try { localStorage.setItem(MUTE_KEY, muted ? '1' : '0'); } catch (e) {}
+      if (master) master.gain.setTargetAtTime(muted ? 0 : 0.32, ctx.currentTime, 0.02);
+      return muted;
+    },
+
+    fire(){      tone({ freq:900, to:170, dur:0.12, type:'square',   gain:0.15 }); },
+    alienFire(){ tone({ freq:280, to:840, dur:0.16, type:'sawtooth', gain:0.11 }); },
+    swallow(){   tone({ freq:520, to:38,  dur:0.60, type:'sine',     gain:0.12 }); },
+
+    rockBoom(size){
+      const dur = 0.20 + size * 0.11;
+      noise({ dur, freq:1400 - size*220, to:70, gain:0.30 });
+      tone({ freq:130 - size*14, to:42, dur:dur*0.8, type:'triangle', gain:0.11 });
+    },
+    alienBoom(){
+      noise({ dur:0.50, freq:2400, to:80, gain:0.34 });
+      tone({ freq:210, to:48, dur:0.42, type:'sawtooth', gain:0.13 });
+    },
+    shipDeath(){
+      noise({ dur:0.95, freq:1700, to:55, gain:0.42 });
+      tone({ freq:250, to:32, dur:0.9, type:'triangle', gain:0.18 });
+    },
+    extraLife(){ [660, 880, 1320].forEach((f, i) =>
+      tone({ freq:f, dur:0.16, type:'square', gain:0.12, delay:i*0.09 })); },
+    levelStart(){ [392, 523].forEach((f, i) =>
+      tone({ freq:f, dur:0.22, type:'triangle', gain:0.11, delay:i*0.14 })); },
+
+    // Two alternating low tones. The interval shrinks as the sector empties —
+    // the oldest tension trick in the genre and still the most effective.
+    beat(low){ tone({ freq: low ? 68 : 55, dur:0.15, type:'sine', gain:0.26 }); },
+
+    thrust(on){
+      if (!ctx) return;
+      if (on && !thrustSrc){
+        thrustSrc = ctx.createBufferSource(); thrustSrc.buffer = noiseBuf; thrustSrc.loop = true;
+        const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 400;
+        thrustGain = ctx.createGain(); thrustGain.gain.value = 0.0001;
+        thrustSrc.connect(f).connect(thrustGain).connect(master);
+        thrustSrc.start();
+        thrustGain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.05);
+      } else if (!on && thrustSrc){
+        release(thrustSrc, thrustGain, 0.08);
+        thrustSrc = null; thrustGain = null;
+      }
+    },
+
+    ufo(on){
+      if (!ctx) return;
+      if (on && !ufoOsc){
+        ufoOsc = ctx.createOscillator(); ufoOsc.type = 'square'; ufoOsc.frequency.value = 130;
+        ufoLfo = ctx.createOscillator(); ufoLfo.type = 'sine';   ufoLfo.frequency.value = 8.5;
+        const depth = ctx.createGain(); depth.gain.value = 26;   // warble, in Hz
+        ufoLfo.connect(depth).connect(ufoOsc.frequency);
+        ufoGain = ctx.createGain(); ufoGain.gain.value = 0.0001;
+        ufoOsc.connect(ufoGain).connect(master);
+        ufoOsc.start(); ufoLfo.start();
+        ufoGain.gain.linearRampToValueAtTime(0.065, ctx.currentTime + 0.15);
+      } else if (!on && ufoOsc){
+        release(ufoOsc, ufoGain, 0.18);
+        ufoLfo.stop(ctx.currentTime + 0.25);
+        ufoOsc = null; ufoLfo = null; ufoGain = null;
+      }
+    },
+
+    /* p is 0..1, how deep in a gravity well the ship is. The holes already
+       bend everything on screen; this lets you hear one closing before you
+       can see that it has you. */
+    pull(p){
+      if (!droneGain || !ctx) return;
+      const t = ctx.currentTime;
+      droneGain.gain.setTargetAtTime(p * 0.22, t, 0.09);
+      droneFilt.frequency.setTargetAtTime(80 + p * 300, t, 0.09);
+      droneOsc.frequency.setTargetAtTime(34 + p * 30, t, 0.14);
+    },
+
+    // Every voice down, now. Used on pause, death and mode changes.
+    silence(){ this.thrust(false); this.ufo(false); this.pull(0); },
+  };
+})();
+
+/* Browsers will not start audio without a gesture, so every gesture offers to
+   start it. After the first this costs a property read. */
+for (const evt of ['keydown','pointerdown','touchend']){
+  addEventListener(evt, () => SFX.start(), { passive:true });
+}
+
+// How deep in a well something is: 0 outside every hole, 1 at the horizon.
+function holePull(o){
+  let best = 0;
+  for (const h of S.holes){
+    const [dx, dy] = delta(o.x, o.y, h.x, h.y);
+    const d = Math.hypot(dx, dy);
+    if (d > CONFIG.hole.reach) continue;
+    const t = 1 - (Math.max(d, CONFIG.hole.core) - CONFIG.hole.core) /
+                  (CONFIG.hole.reach - CONFIG.hole.core);
+    if (t > best) best = t;
+  }
+  return best * best;   // squared, so the drone stays out of the way until it matters
 }
 
 /* ------------------------------ input ----------------------------------- */
@@ -557,6 +757,7 @@ addEventListener('keydown', e => {
   if (e.repeat) return;
   const k = KEYMAP[e.code]; if (k) keys[k] = true;
   if (e.code === 'KeyP') togglePause();
+  if (e.code === 'KeyM') toggleMute();
   if (e.code === 'Space'){
     if (S.mode === 'title') newGame();
     else if (S.mode === 'over') newGame();
@@ -603,6 +804,14 @@ if (matchMedia('(pointer: coarse)').matches){
     if (e.target.closest('button, input, .btn')) return;
     if (S.mode === 'title' || S.mode === 'over') newGame();
   });
+}
+
+function toggleMute(){
+  SFX.start();                       // this counts as the gesture that unlocks audio
+  const m = SFX.toggleMute();
+  const b = document.getElementById('btnSound');
+  if (b) b.textContent = m ? 'Sound off' : 'Sound on';
+  return m;
 }
 
 function togglePause(){
@@ -901,6 +1110,7 @@ async function authSubmit(){
 $('btnSignIn').addEventListener('click', () => openAuth('in'));
 $('btnSignUp').addEventListener('click', () => openAuth('up'));
 $('btnSignOut').addEventListener('click', async () => { await Store.signOut(); await refreshAll(); });
+$('btnSound').addEventListener('click', toggleMute);
 $('authGo').addEventListener('click', authSubmit);
 $('authCancel').addEventListener('click', closeAuth);
 $('authSwap').addEventListener('click', () => openAuth(authMode === 'up' ? 'in' : 'up'));
@@ -918,7 +1128,7 @@ $('codeCopy').addEventListener('click', async () => {
 
 function addScore(v){
   S.score += v;
-  if (S.score >= S.nextLife){ S.lives++; S.nextLife += CONFIG.extraLife; }
+  if (S.score >= S.nextLife){ S.lives++; S.nextLife += CONFIG.extraLife; SFX.extraLife(); }
   syncHud();
 }
 
@@ -1026,9 +1236,14 @@ function update(){
         life: CONFIG.bullet.life, r: CONFIG.bullet.radius
       });
       sh.cool = CONFIG.bullet.cooldown;
+      SFX.fire();
     }
     if (sh.invuln === 0 && swallowed(sh)) killShip();
   }
+
+  // Continuous voices track state rather than events, so they cannot stick on.
+  SFX.thrust(!!(S.ship && S.ship.thrusting));
+  SFX.pull(S.ship ? holePull(S.ship) : 0);
 
   /* --- bullets (gravity bends them, which is half the fun) --- */
   for (let i=S.bullets.length-1;i>=0;i--){
@@ -1049,7 +1264,7 @@ function update(){
     const r = S.rocks[i];
     applyGravity(r, 0.6);
     r.x += r.vx; r.y += r.vy; r.a += r.spin; wrapPos(r);
-    if (swallowed(r)){ burst(r.x, r.y, 6, 1.4, 20); S.rocks.splice(i,1); }
+    if (swallowed(r)){ burst(r.x, r.y, 6, 1.4, 20); SFX.swallow(); S.rocks.splice(i,1); }
   }
 
   /* --- aliens --- */
@@ -1068,7 +1283,7 @@ function update(){
     if (al.entered) wrapPos(al); else if (al.x < -60 || al.x > W+60) { S.aliens.splice(i,1); continue; }
     al.y = Math.max(20, Math.min(H-20, al.y));
 
-    if (swallowed(al)){ burst(al.x, al.y, 10, 2, 26); S.aliens.splice(i,1); continue; }
+    if (swallowed(al)){ burst(al.x, al.y, 10, 2, 26); SFX.swallow(); S.aliens.splice(i,1); continue; }
 
     if (--al.cool <= 0 && S.ship && al.entered){
       al.cool = c.fireRate + randi(-15,15);
@@ -1080,8 +1295,11 @@ function update(){
       S.alienShots.push({ x:al.x, y:al.y,
         vx:Math.cos(ang)*CONFIG.alienBullet.speed, vy:Math.sin(ang)*CONFIG.alienBullet.speed,
         life:CONFIG.alienBullet.life, r:CONFIG.alienBullet.radius });
+      SFX.alienFire();
     }
   }
+  // Hums only once one is actually on screen, not while it is still off-side.
+  SFX.ufo(S.aliens.some(a => a.entered));
 
   /* --- particles --- */
   for (let i=S.bits.length-1;i>=0;i--){
@@ -1091,6 +1309,17 @@ function update(){
   }
 
   collisions();
+
+  /* --- heartbeat ---
+     Two alternating low tones that quicken as the sector empties. It is doing
+     the same job the difficulty ramp does, but you feel it rather than read
+     it. Paced in ticks like everything else, so it is frame-rate independent. */
+  if (--S.beatTimer <= 0){
+    SFX.beat(S.beatLow);
+    S.beatLow = !S.beatLow;
+    const cleared = S.rocksAtStart ? 1 - S.rocks.length / S.rocksAtStart : 0;
+    S.beatTimer = Math.round(58 - Math.min(1, Math.max(0, cleared)) * 32);
+  }
 
   /* --- respawn / level end --- */
   if (!S.ship && S.mode === 'playing'){
@@ -1122,6 +1351,7 @@ function collisions(){
         const al = S.aliens[j];
         addScore(CONFIG.alien[al.kind].score);
         burst(al.x, al.y, 18, 3.2, 34);
+        SFX.alienBoom();
         S.shake = 8; S.aliens.splice(j,1); S.bullets.splice(i,1);
         break;
       }
@@ -1141,6 +1371,7 @@ function splitRock(idx){
   const r = S.rocks[idx];
   addScore(CONFIG.rock.score[r.size]);
   burst(r.x, r.y, r.size*6, 2.4, 30);
+  SFX.rockBoom(r.size);
   S.shake = 3 + r.size*1.5;
   S.rocks.splice(idx,1);
   if (r.size > 1){
@@ -1156,6 +1387,8 @@ function splitRock(idx){
 function killShip(){
   const sh = S.ship;
   burst(sh.x, sh.y, 26, 3.4, 46);
+  SFX.shipDeath();
+  SFX.thrust(false);          // the ship is gone; its engine must go with it
   S.shake = 14;
   S.ship = null;
   S.lives--;
@@ -1327,8 +1560,10 @@ const MAX_CATCHUP = 5;
 let lastTime = 0, accumulator = 0;
 
 function step(){
-  if (S.mode === 'playing') update();
-  else if (S.mode === 'title') idleScene();
+  if (S.mode === 'playing'){ update(); return; }
+  // Not playing: no held voice may survive a pause, a death or the title.
+  SFX.silence();
+  if (S.mode === 'title') idleScene();
   else if (S.mode === 'over'){
     for (let i=S.bits.length-1;i>=0;i--){
       const p = S.bits[i];
@@ -1360,6 +1595,7 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')){
 resize();
 makeStars();
 syncHud();
+document.getElementById('btnSound').textContent = SFX.muted ? 'Sound off' : 'Sound on';
 refreshAll();
 requestAnimationFrame(loop);
 </script>

@@ -41,6 +41,28 @@ The icons are generated, not hand-drawn — `node tools/make-icons.js` rasterise
 them to PNG with no dependencies (Node's own zlib does the compression). The art
 stays inside the middle 60% so a circular or squircle mask cannot clip it.
 
+## Sound
+
+Every sound is synthesised at runtime with the Web Audio API. There are no
+audio files — one HTML file is the point, and the machine this game descends
+from made its noises with oscillators and a noise generator too.
+
+`M` toggles it, or the button on the title screen. The setting is remembered per
+browser, not per pilot.
+
+Three of the voices are continuous and driven by state rather than by events,
+so a pause or a death can never leave one stuck on: the thruster, the alien
+warble, and a low drone whose volume and cutoff track how deep in a gravity
+well you are. That last one is the useful one — you can hear a hole closing on
+you before the screen makes it obvious.
+
+Underneath it all is the heartbeat: two alternating low tones that quicken as
+the sector empties.
+
+Browsers refuse to make noise before a user gesture, so the first key or tap
+starts the audio. If Web Audio is missing entirely the game runs silently and
+is otherwise unchanged.
+
 ## Pilots and scores
 
 Sign in as a pilot to record a personal best and appear on the top ten. Guests
@@ -67,7 +89,7 @@ methods, without changing any call site.
 node tests/accounts.test.js
 ```
 
-115 assertions, no browser and no automation. The harness extracts the inline
+139 assertions, no browser and no automation. The harness extracts the inline
 `<script>` block and runs it in a Node `vm` context against stub DOM objects.
 
 It covers signup, sign-in, recovery and scoring; asserts that no password or

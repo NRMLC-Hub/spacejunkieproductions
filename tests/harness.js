@@ -37,6 +37,50 @@ function makeCtx() {
   return c;
 }
 
+/* Minimal Web Audio stub. Records what was created, started and stopped so a
+   test can assert that a shot makes a noise and that held voices are released,
+   without any audio hardware in the loop. */
+function makeAudioContext(log) {
+  const param = v => ({
+    value: v,
+    setValueAtTime(x) { this.value = x; return this; },
+    linearRampToValueAtTime(x) { this.value = x; return this; },
+    exponentialRampToValueAtTime(x) { this.value = x; return this; },
+    setTargetAtTime(x) { this.value = x; return this; },
+    cancelScheduledValues() { return this; },
+  });
+  const base = kind => ({ kind, connect(dest) { return dest; }, disconnect() {} });
+  let live = 0;
+  const ctx = {
+    kind: 'ctx',
+    state: 'running',
+    currentTime: 0,
+    sampleRate: 44100,
+    destination: base('destination'),
+    get liveVoices() { return live; },
+    resume() { ctx.state = 'running'; return Promise.resolve(); },
+    createGain() { const n = base('gain'); n.gain = param(1); return n; },
+    createBiquadFilter() { const n = base('filter'); n.frequency = param(350); n.Q = param(1); return n; },
+    createOscillator() {
+      const n = base('osc'); n.frequency = param(440); n.detune = param(0); n.type = 'sine';
+      n.start = () => { live++; log.push('osc:start'); };
+      n.stop = () => { live--; log.push('osc:stop'); };
+      return n;
+    },
+    createBufferSource() {
+      const n = base('src'); n.buffer = null; n.loop = false;
+      n.start = () => { live++; log.push('src:start'); };
+      n.stop = () => { live--; log.push('src:stop'); };
+      return n;
+    },
+    createBuffer(_ch, len, sr) {
+      const data = new Float32Array(len);
+      return { length: len, sampleRate: sr, getChannelData: () => data };
+    },
+  };
+  return ctx;
+}
+
 function makeStorage() {
   const map = new Map();
   return {
@@ -90,6 +134,9 @@ function buildSandbox(opts = {}) {
   }
   function noopFn() {}
 
+  const audioLog = [];
+  const audioCtx = makeAudioContext(audioLog);
+
   for (const id of ids) els.set(id, makeEl(id));
   // title screen starts shown, per the markup
   els.get('titleScreen')._classes.add('show');
@@ -117,6 +164,9 @@ function buildSandbox(opts = {}) {
     navigator: opts.navigator || { clipboard: { writeText: async () => {} } },
     location: opts.location || { protocol: 'file:', href: 'file:///singularity.html' },
     matchMedia: q => ({ matches: !!(opts.media && opts.media[q]) }),
+    // Absent by default — the game must run silently with no Web Audio at all.
+    ...(opts.audio ? { AudioContext: function () { return audioCtx; } } : {}),
+    Float32Array,
     devicePixelRatio: 1,
     setTimeout: (fn) => { /* focus only; run nothing */ return 0; },
     clearTimeout: noopFn,
@@ -129,6 +179,8 @@ function buildSandbox(opts = {}) {
   };
   sandbox.window = sandbox;
   sandbox.globalThis = sandbox;
+  sandbox._audioLog = audioLog;
+  sandbox._audioCtx = audioCtx;
   vm.createContext(sandbox);
   return sandbox;
 }
@@ -146,6 +198,8 @@ function run(opts = {}) {
     document: sandbox.document,
     localStorage: sandbox.localStorage,
     el: id => sandbox.document.getElementById(id),
+    audio: sandbox._audioLog,
+    audioCtx: sandbox._audioCtx,
     fireGlobal: (type, ev) => { for (const fn of sandbox._listeners.global[type] || []) fn(ev); },
   };
 }

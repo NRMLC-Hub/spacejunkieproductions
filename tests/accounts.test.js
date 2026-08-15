@@ -193,6 +193,113 @@ section('every element the script reaches for exists in the markup');
   ok('a guest game-over says so', Z.el('overPilot').innerHTML.includes('guest'));
 }
 
+section('sound');
+{
+  // A browser with no Web Audio at all must play exactly as before, silently.
+  const mute = run();
+  ok('the game boots with no Web Audio present', mute.get('S').mode === 'title');
+  let threw = null;
+  try {
+    const X = mute.get('SFX');
+    X.start(); X.fire(); X.rockBoom(3); X.shipDeath(); X.beat(true);
+    X.thrust(true); X.thrust(false); X.ufo(true); X.ufo(false); X.pull(0.5); X.silence();
+  } catch (e) { threw = e; }
+  ok('every sound entry point is a no-op without Web Audio', threw === null,
+     threw && threw.message);
+  mute.get('newGame')();
+  for (let i = 0; i < 120; i++) mute.get('step')();
+  ok('a full second of play runs silently without throwing',
+     mute.get('S').mode === 'playing');
+
+  // With a context, sounds actually get made.
+  const A = run({ audio: true });
+  const SFX = A.get('SFX');
+  ok('no context exists before a gesture', A.audio.length === 0);
+  A.fireGlobal('keydown', { code: 'KeyQ', key: 'q', preventDefault() {}, repeat: false });
+  ok('a gesture starts the audio context', A.audio.includes('osc:start'));
+
+  A.audio.length = 0;
+  SFX.fire();
+  ok('firing makes a sound', A.audio.filter(x => x === 'osc:start').length === 1);
+  A.audio.length = 0;
+  SFX.rockBoom(3);
+  ok('an explosion uses both noise and a tone',
+     A.audio.includes('src:start') && A.audio.includes('osc:start'));
+
+  // Held voices: start once, released once, never doubled.
+  A.audio.length = 0;
+  SFX.thrust(true); SFX.thrust(true); SFX.thrust(true);
+  ok('holding thrust starts exactly one voice',
+     A.audio.filter(x => x === 'src:start').length === 1);
+  SFX.thrust(false); SFX.thrust(false);
+  ok('releasing thrust stops it exactly once',
+     A.audio.filter(x => x === 'src:stop').length === 1);
+
+  A.audio.length = 0;
+  SFX.ufo(true); SFX.ufo(true);
+  ok('the alien hum starts one voice pair', A.audio.filter(x => x === 'osc:start').length === 2);
+  SFX.ufo(false);
+  ok('the alien hum releases both', A.audio.filter(x => x === 'osc:stop').length === 2);
+
+  // The real guarantee: a pause or a death can never strand a held note.
+  const B = run({ audio: true });
+  B.fireGlobal('keydown', { code: 'Space', key: ' ', preventDefault() {}, repeat: false });
+  const before = B.audioCtx.liveVoices;
+  B.get('keys').thrust = true;
+  B.get('step')();
+  ok('thrusting holds a voice open', B.audioCtx.liveVoices > before);
+  B.get('S').mode = 'paused';
+  B.get('step')();
+  ok('pausing releases every held voice', B.audioCtx.liveVoices === before);
+
+  const C = run({ audio: true });
+  C.fireGlobal('keydown', { code: 'Space', key: ' ', preventDefault() {}, repeat: false });
+  const base = C.audioCtx.liveVoices;
+  C.get('keys').thrust = true;
+  C.get('step')();
+  C.get('killShip')();
+  ok('dying releases the engine', C.audioCtx.liveVoices === base);
+
+  // Mute is a device setting, survives a reload, and is not tied to an account.
+  const M = run({ audio: true });
+  M.fireGlobal('keydown', { code: 'KeyQ', key: 'q', preventDefault() {}, repeat: false });
+  ok('sound starts unmuted', M.get('SFX').muted === false);
+  ok('the button reads the live state', M.el('btnSound').textContent === 'Sound on');
+  M.get('toggleMute')();
+  ok('M mutes', M.get('SFX').muted === true);
+  ok('the button follows', M.el('btnSound').textContent === 'Sound off');
+  ok('mute is persisted', M.localStorage.getItem('sj.muted.v1') === '1');
+  M.audio.length = 0;
+  M.get('SFX').fire();
+  ok('a muted game makes no sound at all', M.audio.length === 0);
+  const M2 = run({ audio: true, storage: M.localStorage });
+  ok('mute survives a reload', M2.get('SFX').muted === true);
+  ok('the button reflects it on load', M2.el('btnSound').textContent === 'Sound off');
+
+  // The heartbeat is paced in ticks, so it cannot depend on frame rate.
+  const H = run({ audio: true });
+  H.fireGlobal('keydown', { code: 'Space', key: ' ', preventDefault() {}, repeat: false });
+  // Space is also the fire key. Leaving it held would fill the sample with
+  // gunfire and rock explosions and drown out what we are counting.
+  H.fireGlobal('keyup', { code: 'Space' });
+  H.audio.length = 0;
+  for (let i = 0; i < 180; i++) H.get('step')();          // three seconds
+  const beats = H.audio.filter(x => x === 'osc:start').length;
+  ok('the heartbeat sounds a few times over three seconds', beats >= 3 && beats <= 6,
+     'got ' + beats);
+
+  // And it quickens: the same window with the sector nearly cleared.
+  const H2 = run({ audio: true });
+  H2.fireGlobal('keydown', { code: 'Space', key: ' ', preventDefault() {}, repeat: false });
+  H2.fireGlobal('keyup', { code: 'Space' });
+  H2.get('S').rocks.length = 1;                            // as if nearly done
+  H2.audio.length = 0;
+  for (let i = 0; i < 180; i++) H2.get('step')();
+  const fast = H2.audio.filter(x => x === 'osc:start').length;
+  ok('the heartbeat quickens as the sector empties', fast > beats,
+     'full=' + beats + ' nearly-cleared=' + fast);
+}
+
 section('the world scales to the screen');
 {
   const desk = run({ W: 1600, H: 900 });
@@ -257,9 +364,17 @@ section('double-tap zoom guard (iOS ignores user-scalable=no)');
   ok('a double tap on a text field is left alone',
      tap(1700, { closest: sel => (sel.includes('input') ? {} : null) }) === false);
 
-  const D = run();   // desktop: no coarse pointer, so no guard is installed
-  ok('the guard is not installed on a desktop pointer',
-     (D.sandbox._listeners.global.touchend || []).length === 0);
+  // Desktop: no coarse pointer, so no guard. Asserted behaviourally — the
+  // audio unlock also listens on touchend, so counting listeners proves nothing.
+  const D = run();
+  let deskPrevented = false;
+  for (const ts of [1000, 1100]) {
+    D.fireGlobal('touchend', {
+      timeStamp: ts, target: { closest: () => null },
+      preventDefault() { deskPrevented = true; },
+    });
+  }
+  ok('the guard is not installed on a desktop pointer', deskPrevented === false);
 }
 
 section('progressive web app');

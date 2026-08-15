@@ -42,6 +42,30 @@ This file is the working context.
 - **Correct the record in files, not just in chat.** Findings that only live in
   a conversation are lost when the session ends.
 
+## Sound
+
+All synthesised at runtime in the `SFX` module. **Never add an audio file** —
+there is no asset pipeline and one HTML file is the point.
+
+Two invariants:
+
+- **Nothing in `SFX` may break the game.** Browsers refuse to create an
+  AudioContext before a gesture, some environments have no Web Audio, and the
+  test harness has none by default. Every entry point returns quietly without a
+  context, and there is a test asserting a full second of play runs silently.
+- **Continuous voices are driven by state, not events.** Thrust, the alien hum
+  and the gravity drone are set every tick from what is true right now, and
+  `step()` calls `SFX.silence()` whenever the mode is not `playing`. Do not
+  start a held voice from an event handler — that is how a note gets stranded
+  through a pause. Tests assert a pause and a death both release everything.
+
+The heartbeat is paced in ticks like everything else, so it stays frame-rate
+independent. Mute lives in `localStorage` under `sj.muted.v1` — it is a device
+setting, deliberately not part of a pilot account.
+
+`tests/harness.js` has a Web Audio stub that records `start`/`stop` per voice;
+pass `run({ audio: true })` to use it.
+
 ## World units are not CSS pixels
 
 `W` and `H` are the world in **world units**, and every length in `CONFIG` —
