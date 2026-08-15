@@ -156,6 +156,9 @@
   #banner.show{display:flex}
   #banner .n{font-size:clamp(28px,7vw,52px);letter-spacing:.3em;text-indent:.3em}
   #banner .t{font-size:11px;letter-spacing:.34em;color:var(--dim);text-transform:uppercase}
+  #banner .m{font-size:12px;letter-spacing:.12em;color:var(--ink);max-width:min(560px,86vw);
+             line-height:1.75;text-align:center;margin-top:6px;padding:0 18px}
+  #banner .m:not(:empty)::before{content:"4 ";color:var(--dim)}
 
   /* ---- Touch controls ---- */
   #touch{position:absolute;inset:0;display:none;pointer-events:none;touch-action:none}
@@ -217,7 +220,7 @@
     </div>
   </div>
 
-  <div id="banner"><div class="n" id="bannerN">SECTOR 01</div><div class="t" id="bannerT"></div></div>
+  <div id="banner"><div class="n" id="bannerN">SECTOR 01</div><div class="t" id="bannerT"></div><div class="m" id="bannerM"></div></div>
 
   <div class="screen show" id="titleScreen">
     <div class="title">SINGULARITY</div>
@@ -232,6 +235,7 @@
       <span>Space</span><span>Fire</span>
       <span>P</span><span>Pause</span>
       <span>M</span><span>Sound</span>
+      <span>V</span><span>Voice</span>
     </div>
     <div class="board" id="titleBoard"></div>
     <div class="sub" id="pilotLine"></div>
@@ -240,6 +244,7 @@
       <button class="action" id="btnSignUp">New pilot</button>
       <button class="action ghost" id="btnSignOut" hidden>Sign out</button>
       <button class="action ghost" id="btnSound">Sound on</button>
+      <button class="action ghost" id="btnVoice" hidden>Voice on</button>
     </div>
     <div class="warn" id="storageWarn" hidden></div>
     <div class="prompt blink" id="startPrompt">Press Space to launch</div>
@@ -541,8 +546,10 @@ function levelSetup(n){
 function startLevel(n){
   S.level = n;
   levelSetup(n);
-  showBanner('SECTOR ' + String(n).padStart(2,'0'), levelTagline(n));
+  const brief = sectorBrief(n);
+  showBanner('SECTOR ' + String(n).padStart(2,'0'), levelTagline(n), brief);
   SFX.levelStart();
+  VOICE.say(brief);
   syncHud();
 }
 
@@ -581,6 +588,17 @@ const SFX = (() => {
   let droneOsc = null, droneFilt = null, droneGain = null;
   let shaper = null;   // shared soft-clipper; `drive:true` routes through it
 
+  /* Master level has two independent inputs — the mute toggle and ducking
+     under a voice transmission. Routing both through one function is what
+     stops them fighting: unmuting mid-briefing must not undo the duck, and
+     un-ducking must not unmute. */
+  const FULL = 0.32, DUCKED = 0.11;
+  let ducked = false;
+  const masterTarget = () => muted ? 0 : (ducked ? DUCKED : FULL);
+  function applyMaster(){
+    if (master && ctx) master.gain.setTargetAtTime(masterTarget(), ctx.currentTime, 0.06);
+  }
+
   /* Called on every gesture. Browsers will not let a page make noise before
      one, and iOS additionally suspends the context when the tab is hidden, so
      this both creates and revives. Cheap and idempotent after the first. */
@@ -591,7 +609,7 @@ const SFX = (() => {
     try { ctx = new AC(); } catch (e){ ctx = null; return; }
 
     master = ctx.createGain();
-    master.gain.value = muted ? 0 : 0.32;
+    master.gain.value = masterTarget();
     master.connect(ctx.destination);
 
     /* A tanh soft-clipper. Real explosions are distorted — the harmonics that
@@ -682,9 +700,12 @@ const SFX = (() => {
     toggleMute(){
       muted = !muted;
       try { localStorage.setItem(MUTE_KEY, muted ? '1' : '0'); } catch (e) {}
-      if (master) master.gain.setTargetAtTime(muted ? 0 : 0.32, ctx.currentTime, 0.02);
+      applyMaster();
       return muted;
     },
+
+    // Pull the game down under a voice transmission so the two do not fight.
+    duck(on){ ducked = !!on; applyMaster(); },
 
     /* A square wave starting at 900Hz is all odd harmonics landing in the
        band the ear finds harshest — that is what "tingy" was. Triangle rolls
@@ -800,6 +821,94 @@ const SFX = (() => {
   };
 })();
 
+/* ------------------------- sector transmissions -------------------------
+   What command says when you arrive. The text is the feature and the voice is
+   an enhancement: this string is always shown on the banner, whether or not
+   the browser can speak it, whether or not voice is switched on.
+
+   Keep them SHORT — a blurp, not a briefing. Anything longer is still being
+   read out while the player is already dodging, and it stops registering.          */
+function sectorBrief(n){
+  if (n === 1) return 'Commander. Sector one. Clear the debris.';
+  if (n === 2) return 'Gravity well detected.';
+  if (n === 3) return 'Hostile contact.';
+  if (n === 4) return 'Debris density rising.';
+  if (n === 5) return 'Interceptors inbound. These ones aim.';
+  if (n % 10 === 0) return 'Sector ' + n + '. Deep void.';
+  if (n % 5 === 0)  return 'Sector ' + n + '. Stay sharp.';
+  return pick([
+    'Sector ' + n + '. Clear it.',
+    'Sector ' + n + '. Mind the wells.',
+    'Sector ' + n + '. Hostiles in the lane.',
+    'Sector ' + n + '. Still with us, Commander?',
+  ]);
+}
+
+/* ------------------------------- voice ----------------------------------
+   The browser's own speech synthesis. No audio files, so the game stays one
+   self-contained page — and no recording session either.
+
+   It is genuinely unreliable across platforms: the voice list populates
+   asynchronously, quality swings wildly, and some browsers ship none at all.
+   Everything here therefore fails soft. If it cannot speak, the briefing is
+   still on screen and nothing else changes.                                */
+const VOICE = (() => {
+  const KEY = 'sj.voice.v1';
+  const synth = typeof speechSynthesis !== 'undefined' ? speechSynthesis : null;
+  let on = true, voice = null, picked = false;
+  try { const v = localStorage.getItem(KEY); if (v !== null) on = v === '1'; } catch (e) {}
+
+  /* getVoices() is empty on first call in most browsers and fills in later,
+     which is why this can run more than once. Prefer a named English voice:
+     the defaults are usually the flattest ones available. */
+  function pickVoice(){
+    if (!synth || picked) return;
+    const all = synth.getVoices();
+    if (!all || !all.length) return;
+    picked = true;
+    const en = all.filter(v => /^en\b|^en[-_]/i.test(v.lang || ''));
+    const pool = en.length ? en : all;
+    voice = pool.find(v => /daniel|arthur|oliver|google uk english male|microsoft (guy|ryan)/i.test(v.name || ''))
+         || pool.find(v => /male/i.test(v.name || ''))
+         || pool[0];
+  }
+  if (synth){
+    pickVoice();
+    try { synth.onvoiceschanged = () => { picked = false; pickVoice(); }; } catch (e) {}
+  }
+
+  return {
+    get available(){ return !!synth; },
+    get on(){ return on; },
+    get voiceName(){ return voice ? voice.name : null; },
+    toggle(){
+      on = !on;
+      try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (e) {}
+      if (!on) this.stop();
+      return on;
+    },
+    stop(){
+      if (!synth) return;
+      try { synth.cancel(); } catch (e) {}
+      SFX.duck(false);          // never leave the game quiet after a cancel
+    },
+    say(text){
+      if (!synth || !on || SFX.muted) return false;
+      try {
+        synth.cancel();         // a fast sector clear must not stack briefings
+        const u = new SpeechSynthesisUtterance(text);
+        if (voice) u.voice = voice;
+        u.rate = 0.95; u.pitch = 0.85; u.volume = 0.9;
+        u.onstart = () => SFX.duck(true);
+        u.onend   = () => SFX.duck(false);
+        u.onerror = () => SFX.duck(false);
+        synth.speak(u);
+        return true;
+      } catch (e){ SFX.duck(false); return false; }
+    },
+  };
+})();
+
 /* Browsers will not start audio without a gesture, so every gesture offers to
    start it. After the first this costs a property read. */
 for (const evt of ['keydown','pointerdown','touchend']){
@@ -840,6 +949,7 @@ addEventListener('keydown', e => {
   const k = KEYMAP[e.code]; if (k) keys[k] = true;
   if (e.code === 'KeyP') togglePause();
   if (e.code === 'KeyM') toggleMute();
+  if (e.code === 'KeyV') toggleVoice();
   if (e.code === 'Space'){
     if (S.mode === 'title') newGame();
     else if (S.mode === 'over') newGame();
@@ -891,13 +1001,29 @@ if (matchMedia('(pointer: coarse)').matches){
 function toggleMute(){
   SFX.start();                       // this counts as the gesture that unlocks audio
   const m = SFX.toggleMute();
-  const b = document.getElementById('btnSound');
-  if (b) b.textContent = m ? 'Sound off' : 'Sound on';
+  if (m) VOICE.stop();               // muting mid-briefing should silence it too
+  syncAudioButtons();
   return m;
 }
 
+function toggleVoice(){
+  const v = VOICE.toggle();
+  syncAudioButtons();
+  return v;
+}
+
+function syncAudioButtons(){
+  const b = document.getElementById('btnSound');
+  if (b) b.textContent = SFX.muted ? 'Sound off' : 'Sound on';
+  const v = document.getElementById('btnVoice');
+  if (v){
+    v.hidden = !VOICE.available;     // no point offering it where it cannot work
+    v.textContent = VOICE.on ? 'Voice on' : 'Voice off';
+  }
+}
+
 function togglePause(){
-  if (S.mode === 'playing'){ S.mode = 'paused'; show('pauseScreen', true); }
+  if (S.mode === 'playing'){ S.mode = 'paused'; show('pauseScreen', true); VOICE.stop(); }
   else if (S.mode === 'paused'){ S.mode = 'playing'; show('pauseScreen', false); }
 }
 
@@ -917,11 +1043,14 @@ function syncHud(){
 }
 
 let bannerTimer = 0;
-function showBanner(n, t){
+function showBanner(n, t, msg){
   document.getElementById('bannerN').textContent = n;
   document.getElementById('bannerT').textContent = t;
+  document.getElementById('bannerM').textContent = msg || '';
   show('banner', true);
-  bannerTimer = 110;
+  // Hold a little longer when there is a transmission, but not long: these
+  // are short lines and the banner should be gone before the fight starts.
+  bannerTimer = msg ? 165 : 110;
 }
 
 /* =================== pilots, scores and the leaderboard ==================
@@ -1210,6 +1339,7 @@ $('btnSignIn').addEventListener('click', () => openAuth('in'));
 $('btnSignUp').addEventListener('click', () => openAuth('up'));
 $('btnSignOut').addEventListener('click', async () => { await Store.signOut(); await refreshAll(); });
 $('btnSound').addEventListener('click', toggleMute);
+$('btnVoice').addEventListener('click', toggleVoice);
 $('authGo').addEventListener('click', authSubmit);
 $('authCancel').addEventListener('click', closeAuth);
 $('authSwap').addEventListener('click', () => openAuth(authMode === 'up' ? 'in' : 'up'));
@@ -1243,6 +1373,7 @@ function newGame(){
 
 function gameOver(){
   S.mode = 'over';
+  VOICE.stop();               // a briefing must not outlive the run it opened
   const score = S.score, level = S.level;
   document.getElementById('finalScore').textContent = pad6(score);
   document.getElementById('finalLevel').textContent = 'Sector ' + String(level).padStart(2,'0');
@@ -1728,7 +1859,7 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')){
 resize();
 makeStars();
 syncHud();
-document.getElementById('btnSound').textContent = SFX.muted ? 'Sound off' : 'Sound on';
+syncAudioButtons();
 refreshAll();
 requestAnimationFrame(loop);
 </script>

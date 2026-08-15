@@ -23,6 +23,7 @@ offline, straight off the disk.
 | `Space` | Fire |
 | `P` | Pause |
 | `M` | Sound on/off |
+| `V` | Voice on/off |
 
 Touch controls appear automatically on a coarse pointer, and the key legend
 hides itself there.
@@ -72,6 +73,20 @@ Browsers refuse to make noise before a user gesture, so the first key or tap
 starts the audio. If Web Audio is missing entirely the game runs silently and
 is otherwise unchanged.
 
+## Sector transmissions
+
+Command says something short when you arrive in a sector — "Gravity well
+detected", "Interceptors inbound. These ones aim."
+
+It is spoken with the browser's own speech synthesis, so there are still no
+audio files and the game is still one page. **The text is the feature and the
+voice is an enhancement:** the line always appears on the banner, whether or
+not the browser can speak, and the `V` toggle only silences the speech. Speech
+support varies wildly across platforms, so none of it is load-bearing.
+
+The game ducks under a transmission so the two are not fighting, and comes back
+up after. `M` silences everything including speech; `V` silences speech alone.
+
 ## Pilots and scores
 
 Sign in as a pilot to record a personal best and appear on the top ten. Guests
@@ -98,7 +113,7 @@ methods, without changing any call site.
 node tests/accounts.test.js
 ```
 
-162 assertions, no browser and no automation. The harness extracts the inline
+180 assertions, no browser and no automation. The harness extracts the inline
 `<script>` block and runs it in a Node `vm` context against stub DOM objects.
 
 It covers signup, sign-in, recovery and scoring; asserts that no password or

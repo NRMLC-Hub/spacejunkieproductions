@@ -111,6 +111,26 @@ setting, deliberately not part of a pilot account.
 `tests/harness.js` has a Web Audio stub that records `start`/`stop` per voice;
 pass `run({ audio: true })` to use it.
 
+## Sector transmissions
+
+`sectorBrief(n)` returns what command says on arrival; `VOICE` speaks it with
+the browser's speech synthesis.
+
+- **Keep the lines short.** A test fails past eight words. These are blurps,
+  not briefings — anything longer is still being read out while the player is
+  already dodging.
+- **The text is the feature, the voice is an enhancement.** The line always
+  goes on the banner. Speech support is genuinely unreliable across platforms
+  (voice list populates asynchronously, quality swings, some browsers ship
+  none), so `VOICE` fails soft everywhere and the button hides itself when
+  speech is unavailable. Never make anything depend on speech working.
+- **Master gain has two independent inputs** — mute, and ducking under a
+  transmission. Both go through `applyMaster()`. Setting `master.gain`
+  directly from either one reintroduces the bug where unmuting mid-briefing
+  cancels the duck.
+- `M` silences everything, `V` silences speech alone. Mute also cancels any
+  transmission in progress; pausing and dying both stop speech.
+
 ## World units are not CSS pixels
 
 `W` and `H` are the world in **world units**, and every length in `CONFIG` —

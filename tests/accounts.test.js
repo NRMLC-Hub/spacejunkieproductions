@@ -387,6 +387,70 @@ section('sound');
      'full=' + beats + ' nearly-cleared=' + fast);
 }
 
+section('sector transmissions');
+{
+  // The text is the feature; the voice is an enhancement. With no speech
+  // engine at all the briefing must still reach the screen.
+  const N = run({ audio: true });
+  N.fireGlobal('keydown', { code: 'Space', key: ' ', preventDefault() {}, repeat: false });
+  ok('the briefing shows with no speech engine',
+     /Clear the debris/.test(N.el('bannerM').textContent), N.el('bannerM').textContent);
+  ok('the voice button is hidden where speech is unavailable', N.el('btnVoice').hidden === true);
+  ok('the game still runs without a speech engine', N.get('S').mode === 'playing');
+
+  const V = run({ audio: true, voice: true });
+  V.fireGlobal('keydown', { code: 'Space', key: ' ', preventDefault() {}, repeat: false });
+  ok('sector one is spoken on launch',
+     V.speech.some(x => /^speak:Commander. Sector one/.test(x)), V.speech.join(" | "));
+  ok('the voice button appears when speech exists', V.el('btnVoice').hidden === false);
+
+  // An English voice, not whichever happens to be first. The stub lists a
+  // French voice ahead of two English ones.
+  ok('an English voice is chosen over the first in the list',
+     V.get('VOICE').voiceName === 'Daniel', String(V.get('VOICE').voiceName));
+
+  // Ducking: the game drops under a transmission and comes back after it.
+  const master = V.masterGain();
+  const under = master.gain.value;
+  ok('the game ducks under a transmission', under < 0.2, String(under));
+  V.synth.last.onend();
+  ok('the game comes back up afterwards', master.gain.value > 0.3, String(master.gain.value));
+
+  // A fast sector clear must not stack briefings on top of each other.
+  V.speech.length = 0;
+  V.get('startLevel')(2);
+  ok('a new briefing cancels the previous one', V.speech[0] === 'cancel', V.speech.join(" | "));
+
+  // Muting kills speech too — one control for "be quiet".
+  V.speech.length = 0;
+  V.get('toggleMute')();
+  ok('muting stops a transmission in progress', V.speech.includes('cancel'));
+  V.get('startLevel')(3);
+  ok('a muted game does not speak', !V.speech.some(x => x.startsWith('speak:')));
+  V.get('toggleMute')();
+
+  // And voice has its own switch, for people who want effects but not speech.
+  V.speech.length = 0;
+  ok('voice starts on', V.get('toggleVoice')() === false);
+  V.get('startLevel')(4);
+  ok('voice off silences speech but keeps the text',
+     !V.speech.some(x => x.startsWith('speak:')) &&
+     /Debris density/.test(V.el('bannerM').textContent));
+  ok('the voice choice is persisted', V.localStorage.getItem('sj.voice.v1') === '0');
+  const V2 = run({ audio: true, voice: true, storage: V.localStorage });
+  ok('voice off survives a reload', V2.get('VOICE').on === false);
+  ok('the button reflects it on load', V2.el('btnVoice').textContent === 'Voice off');
+
+  // Briefs are blurps, not paragraphs.
+  const brief = V.get('sectorBrief');
+  let longest = 0;
+  for (let n = 1; n <= 60; n++) longest = Math.max(longest, brief(n).split(/s+/).length);
+  ok('every briefing is short enough to be over before the fight', longest <= 8,
+     longest + ' words');
+  ok('every sector has something to say',
+     Array.from({ length: 60 }, (_, i) => brief(i + 1)).every(s => s && s.length > 5));
+}
+
 section('the world scales to the screen');
 {
   const desk = run({ W: 1600, H: 900 });

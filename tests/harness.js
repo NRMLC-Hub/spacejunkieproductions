@@ -53,13 +53,14 @@ function makeAudioContext(log) {
   let live = 0;
   const ctx = {
     kind: 'ctx',
+    _gains: [],   // _gains[0] is the master node; start() creates it first
     state: 'running',
     currentTime: 0,
     sampleRate: 44100,
     destination: base('destination'),
     get liveVoices() { return live; },
     resume() { ctx.state = 'running'; return Promise.resolve(); },
-    createGain() { const n = base('gain'); n.gain = param(1); return n; },
+    createGain() { const n = base('gain'); n.gain = param(1); ctx._gains.push(n); return n; },
     createBiquadFilter() { const n = base('filter'); n.frequency = param(350); n.Q = param(1); return n; },
     createWaveShaper() { const n = base('shaper'); n.curve = null; n.oversample = 'none'; return n; },
     createOscillator() {
@@ -80,6 +81,23 @@ function makeAudioContext(log) {
     },
   };
   return ctx;
+}
+
+/* Speech synthesis stub. speak() fires onstart but NOT onend, so a test can
+   observe the ducked state and then end the utterance itself. */
+function makeSpeech(log) {
+  const voices = [
+    { name: 'Amelie', lang: 'fr-FR' },
+    { name: 'Samantha', lang: 'en-US' },
+    { name: 'Daniel', lang: 'en-GB' },
+  ];
+  return {
+    last: null,
+    onvoiceschanged: null,
+    getVoices: () => voices,
+    speak(u) { log.push('speak:' + u.text); this.last = u; if (u.onstart) u.onstart(); },
+    cancel() { log.push('cancel'); },
+  };
 }
 
 function makeStorage() {
@@ -137,6 +155,8 @@ function buildSandbox(opts = {}) {
 
   const audioLog = [];
   const audioCtx = makeAudioContext(audioLog);
+  const speechLog = [];
+  const speech = makeSpeech(speechLog);
 
   for (const id of ids) els.set(id, makeEl(id));
   // title screen starts shown, per the markup
@@ -167,6 +187,11 @@ function buildSandbox(opts = {}) {
     matchMedia: q => ({ matches: !!(opts.media && opts.media[q]) }),
     // Absent by default — the game must run silently with no Web Audio at all.
     ...(opts.audio ? { AudioContext: function () { return audioCtx; } } : {}),
+    // Absent by default — the briefing must still appear with no speech engine.
+    ...(opts.voice ? {
+      speechSynthesis: speech,
+      SpeechSynthesisUtterance: function (text) { this.text = text; },
+    } : {}),
     Float32Array,
     devicePixelRatio: 1,
     setTimeout: (fn) => { /* focus only; run nothing */ return 0; },
@@ -182,6 +207,8 @@ function buildSandbox(opts = {}) {
   sandbox.globalThis = sandbox;
   sandbox._audioLog = audioLog;
   sandbox._audioCtx = audioCtx;
+  sandbox._speechLog = speechLog;
+  sandbox._speech = speech;
   vm.createContext(sandbox);
   return sandbox;
 }
@@ -201,6 +228,9 @@ function run(opts = {}) {
     el: id => sandbox.document.getElementById(id),
     audio: sandbox._audioLog,
     audioCtx: sandbox._audioCtx,
+    speech: sandbox._speechLog,
+    synth: sandbox._speech,
+    masterGain: () => sandbox._audioCtx._gains[0],
     fireGlobal: (type, ev) => { for (const fn of sandbox._listeners.global[type] || []) fn(ev); },
   };
 }
