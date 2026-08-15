@@ -1,9 +1,12 @@
 # SINGULARITY
 
-A monochrome vector arcade shooter. Asteroids, but every black hole bends every
-free body in the world — rocks, ships, aliens, and both kinds of bullets — through
-one shared gravity rule. Your own shots curve. So does your ship, while you are
+A monochrome vector arcade shooter built around gravity. Every black hole in the
+field bends every free body — rocks, ships, aliens, and both kinds of bullets —
+through one shared rule. Your own shots curve. So does your ship, while you are
 still invulnerable from the last respawn.
+
+It stands in the lineage of late-1970s vector arcade games. The gravity, the
+ships, the setting, the sound and every line of code are original.
 
 **[Play it](https://nrmlc-hub.github.io/spacejunkieproductions/)**
 
@@ -41,6 +44,11 @@ worker would.
 The icons are generated, not hand-drawn — `node tools/make-icons.js` rasterises
 them to PNG with no dependencies (Node's own zlib does the compression). The art
 stays inside the middle 60% so a circular or squircle mask cannot clip it.
+
+`node tools/preview-shapes.js` does the same for the ship and alien
+silhouettes, so a design change can be looked at without opening a browser. It
+parses the coordinates straight out of `singularity.html`, so the preview
+cannot drift from what the game draws.
 
 ## Sound
 
@@ -90,7 +98,7 @@ methods, without changing any call site.
 node tests/accounts.test.js
 ```
 
-142 assertions, no browser and no automation. The harness extracts the inline
+151 assertions, no browser and no automation. The harness extracts the inline
 `<script>` block and runs it in a Node `vm` context against stub DOM objects.
 
 It covers signup, sign-in, recovery and scoring; asserts that no password or

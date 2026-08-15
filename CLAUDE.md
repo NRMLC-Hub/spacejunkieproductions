@@ -42,6 +42,36 @@ This file is the working context.
 - **Correct the record in files, not just in chat.** Findings that only live in
   a conversation are lost when the session ends.
 
+## Keep a deliberate distance from the 1979 arcade original
+
+Game *mechanics* are not copyrightable — "rocks split when shot, the screen
+wraps" is an idea and anyone may use it. Specific *expression* is a different
+matter, and the file used to carry more of it than anyone intended. Cleaned up
+on 2026-08-15; do not let these drift back:
+
+- **The score table is not the original's.** It was 20/50/100 for rocks,
+  200 for the large saucer, and an extra ship every 10,000 — matching the 1979
+  game exactly, which is transcription, not convergence. It is now a 3x ramp
+  (15/45/135), saucers at 300/750, extra hull at 12,000, and `CONFIG` carries
+  the reasoning. **Do not "restore" the old numbers.**
+- **The ship is a swept flying wing**, not the arcade triangle.
+- **The alien is a tall hexagonal probe**, not the wide domed saucer — that
+  silhouette is the most recognisable thing in the genre and is not ours.
+- **Do not define the game as "Asteroids" in the README, the repo description,
+  or store copy.** Comparison in conversation is fine; making it the
+  definition is what invites a trademark problem. "ASTEROIDS" is a live Atari
+  mark.
+
+Practical risk on a free, differently-named game with an original core
+mechanic is low, and the closest precedent (*Atari v. Amusement World*, 1981)
+went against Atari. But *Tetris Holding v. Xio* (2012) went the other way on
+look-and-feel, so keeping the expression clearly our own costs nothing and
+settles the question. None of this is legal advice; if the game ever earns
+money, ask someone qualified.
+
+New silhouettes were designed by rasterising candidates to PNG and looking at
+them — no browser needed. See `tools/make-icons.js` for the same technique.
+
 ## Sound
 
 All synthesised at runtime in the `SFX` module. **Never add an audio file** —

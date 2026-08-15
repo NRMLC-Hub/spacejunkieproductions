@@ -193,6 +193,35 @@ section('every element the script reaches for exists in the markup');
   ok('a guest game-over says so', Z.el('overPilot').innerHTML.includes('guest'));
 }
 
+section('deliberate distance from the 1979 arcade original');
+{
+  const C = run().get('CONFIG');
+  // Mechanics are free; expression is not. These exact numbers were the 1979
+  // game's, carried over verbatim. They carry no design meaning, so matching
+  // them was transcription. Guarding so nobody "restores" them later.
+  ok('rock scores are not 20/50/100',
+     !(C.rock.score[3] === 20 && C.rock.score[2] === 50 && C.rock.score[1] === 100));
+  ok('the large saucer is not 200', C.alien.big.score !== 200);
+  ok('the extra life is not every 10,000', C.extraLife !== 10000);
+
+  // And the replacement has a rule of its own rather than being random.
+  ok('rock scores are a clean 3x ramp',
+     C.rock.score[2] === C.rock.score[3] * 3 && C.rock.score[1] === C.rock.score[2] * 3);
+  ok('clearing one large rock fully is worth more than chipping at it',
+     C.rock.score[3] + 2 * C.rock.score[2] + 4 * C.rock.score[1] > 4 * C.rock.score[3]);
+  ok('a small saucer still beats a large one', C.alien.small.score > C.alien.big.score);
+
+  const fs = require('fs'), path = require('path');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'singularity.html'), 'utf8');
+  const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
+  ok('the game does not define itself by the original in user-facing copy',
+     !/^A monochrome vector arcade shooter\. Asteroids,/m.test(readme));
+  ok('the alien is a tall hull, not the wide domed saucer',
+     /ctx\.moveTo\(0, -13\); ctx\.lineTo\(10, -4\.5\)/.test(html));
+  ok('the ship is a swept wing, not the arcade triangle',
+     /ctx\.moveTo\(11, 0\);\s*\/\/ nose/.test(html) && !/ctx\.moveTo\(16, 0\); ctx\.lineTo\(-11, 9\)/.test(html));
+}
+
 section('sound');
 {
   // A browser with no Web Audio at all must play exactly as before, silently.

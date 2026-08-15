@@ -3,6 +3,10 @@
 node_modules/
 package-lock.json
 
+# Design aids from tools/preview-shapes.js — regenerate them, don't commit them.
+# (tools/make-icons.js output IS committed: those ship with the app.)
+preview-*.png
+
 # OS / editor noise
 Thumbs.db
 desktop.ini

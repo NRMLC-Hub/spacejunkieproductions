@@ -332,12 +332,21 @@ const CONFIG = {
   ship:      { radius:11, turn:4.6, thrust:0.26, drag:0.992, maxSpeed:8 },
   bullet:    { speed:7.4, life:62, cooldown:9, max:5, radius:2 },
   alienBullet:{ speed:3.4, life:150, radius:2.5 },
-  rock:      { sizes:{3:34, 2:21, 1:12}, score:{3:20, 2:50, 1:100} },
-  alien:     { big:{r:19, score:200, fireRate:105, speed:1.15},
-               small:{r:12, score:500, fireRate:70, speed:1.9} },
+  /* Scoring is a clean 3x ramp per rock size, which is a rule this game can
+     justify: it pays you for finishing the split chain rather than for
+     chipping at the big ones. Clearing one large rock all the way down is
+     15 + 2x45 + 4x135 = 645.
+     It is deliberately NOT the 20/50/100 the 1979 arcade original used, nor
+     that game's 200/1000 saucers or its extra ship every 10,000. Those are
+     arbitrary numbers carrying no design meaning, and matching them exactly
+     was transcription rather than convergence. extraLife sits at 12,000 so
+     the pacing lands where 10,000 did under the old, lower totals. */
+  rock:      { sizes:{3:34, 2:21, 1:12}, score:{3:15, 2:45, 1:135} },
+  alien:     { big:{r:19, score:300, fireRate:105, speed:1.15},
+               small:{r:12, score:750, fireRate:70, speed:1.9} },
   hole:      { core:15, reach:290, pull:2600 },
   invuln:    120,          // frames of respawn immunity
-  extraLife: 10000,        // bonus hull every N points
+  extraLife: 12000,        // bonus hull every N points
   startLives:3
 };
 
@@ -1509,30 +1518,58 @@ function drawRock(r){
   ctx.closePath(); ctx.stroke();
 }
 
+/* A swept flying wing — a stealth bomber planform. Leading edges rake back
+   from the nose to the tips; the trailing edge sweeps forward toward the tips
+   with a sawtooth riding on it, and the centre body reaches furthest aft.
+
+   A real B-2 is roughly 2.5:1 span to length. This is 1.2:1 on purpose: at
+   the true ratio the ship becomes a thin sliver whenever it points toward or
+   away from you, and you cannot read your own heading — fatal when rotate and
+   thrust are the only controls. Max radial extent is 13.6, which keeps the
+   silhouette honest against the collision radius of 11. */
 function drawShip(sh){
   if (sh.invuln > 0 && Math.floor(sh.invuln/4) % 2 === 0) return;
   ctx.rotate(sh.a);
   stroke(1.6, 1);
   ctx.beginPath();
-  ctx.moveTo(16, 0); ctx.lineTo(-11, 9); ctx.lineTo(-6, 0); ctx.lineTo(-11, -9);
+  ctx.moveTo(11, 0);                                     // nose
+  ctx.lineTo(-4, 13);                                    // starboard tip
+  ctx.lineTo(-7, 8); ctx.lineTo(-3.5, 4);                // sawtooth
+  ctx.lineTo(-11, 0);                                    // centre body, aft-most
+  ctx.lineTo(-3.5, -4); ctx.lineTo(-7, -8);
+  ctx.lineTo(-4, -13);                                   // port tip
   ctx.closePath(); ctx.stroke();
   if (sh.thrusting && S.frame % 3 !== 0){
-    ctx.beginPath();
-    ctx.moveTo(-7, 4.5); ctx.lineTo(-16 - rand(0,6), 0); ctx.lineTo(-7, -4.5);
-    ctx.stroke();
+    // Twin exhausts, set inboard on the trailing edge like the real aircraft.
+    for (const sy of [5.5, -5.5]){
+      ctx.beginPath();
+      ctx.moveTo(-5, sy + 1.8);
+      ctx.lineTo(-12 - rand(0,4), sy);
+      ctx.lineTo(-5, sy - 1.8);
+      ctx.stroke();
+    }
   }
 }
 
+/* A probe, not a flying saucer. The arcade saucer this replaces was a WIDE
+   hexagon with a dome on top — the single most recognisable silhouette in the
+   genre, and not ours to use. This is the opposite: a TALL hexagon with an
+   inner core and two sensor bars. It stays instantly separable from the ship
+   (a pointed wing) and from a rock (an irregular blob) at any size. */
 function drawAlien(al){
   stroke(1.5, 1);
   const s = al.kind === 'small' ? .68 : 1;
   ctx.scale(s, s);
   ctx.beginPath();                       // hull
-  ctx.moveTo(-18, 0); ctx.lineTo(-8, 7); ctx.lineTo(8, 7); ctx.lineTo(18, 0);
-  ctx.lineTo(8, -7); ctx.lineTo(-8, -7); ctx.closePath(); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(-18, 0); ctx.lineTo(18, 0); ctx.stroke();
-  ctx.beginPath();                       // dome
-  ctx.moveTo(-8, -7); ctx.lineTo(-4, -14); ctx.lineTo(4, -14); ctx.lineTo(8, -7);
+  ctx.moveTo(0, -13); ctx.lineTo(10, -4.5); ctx.lineTo(10, 4.5);
+  ctx.lineTo(0, 13); ctx.lineTo(-10, 4.5); ctx.lineTo(-10, -4.5);
+  ctx.closePath(); ctx.stroke();
+  ctx.beginPath();                       // core
+  ctx.moveTo(0, -5.5); ctx.lineTo(4.5, 0); ctx.lineTo(0, 5.5); ctx.lineTo(-4.5, 0);
+  ctx.closePath(); ctx.stroke();
+  ctx.beginPath();                       // sensor bars
+  ctx.moveTo(-16, 0); ctx.lineTo(-10, 0);
+  ctx.moveTo(10, 0);  ctx.lineTo(16, 0);
   ctx.stroke();
 }
 
