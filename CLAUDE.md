@@ -124,10 +124,22 @@ the browser's speech synthesis.
   (voice list populates asynchronously, quality swings, some browsers ship
   none), so `VOICE` fails soft everywhere and the button hides itself when
   speech is unavailable. Never make anything depend on speech working.
+- **The voice itself cannot be filtered.** Browsers do not expose speech
+  output to Web Audio on any platform, so there is no way to band-limit or
+  distort the synthesised voice. The radio feel is built AROUND it instead:
+  a squelch click at each end and a band-limited static bed, on `commsBus`.
+  Do not go looking for a way to process the voice; there is not one.
+- **`commsBus` is muted but never ducked.** It carries the transmission, so
+  ducking it under the transmission would erase it. Two buses, two rules,
+  both set by `applyMaster()`.
 - **Master gain has two independent inputs** — mute, and ducking under a
   transmission. Both go through `applyMaster()`. Setting `master.gain`
   directly from either one reintroduces the bug where unmuting mid-briefing
   cancels the duck.
+- **There is a watchdog, and it is load-bearing.** `speechSynthesis` drops
+  `onend` often enough to matter, and a dropped one would leave the static
+  bed open for the rest of the run. `VOICE.tick()` is driven from `step()`
+  and counted in ticks like every other timed value.
 - `M` silences everything, `V` silences speech alone. Mute also cancels any
   transmission in progress; pausing and dying both stop speech.
 

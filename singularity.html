@@ -586,6 +586,7 @@ const SFX = (() => {
   let thrustSrc = null, thrustGain = null;
   let ufoOsc = null, ufoLfo = null, ufoGain = null;
   let droneOsc = null, droneFilt = null, droneGain = null;
+  let commsSrc = null, commsGain = null;
   let shaper = null;   // shared soft-clipper; `drive:true` routes through it
 
   /* Master level has two independent inputs — the mute toggle and ducking
@@ -594,9 +595,13 @@ const SFX = (() => {
      un-ducking must not unmute. */
   const FULL = 0.32, DUCKED = 0.11;
   let ducked = false;
+  let commsBus = null;   // radio squelch + static: muted, but never ducked
   const masterTarget = () => muted ? 0 : (ducked ? DUCKED : FULL);
   function applyMaster(){
-    if (master && ctx) master.gain.setTargetAtTime(masterTarget(), ctx.currentTime, 0.06);
+    if (!ctx) return;
+    if (master)   master.gain.setTargetAtTime(masterTarget(), ctx.currentTime, 0.06);
+    // The transmission itself must not duck under the transmission.
+    if (commsBus) commsBus.gain.setTargetAtTime(muted ? 0 : 1, ctx.currentTime, 0.06);
   }
 
   /* Called on every gesture. Browsers will not let a page make noise before
@@ -611,6 +616,10 @@ const SFX = (() => {
     master = ctx.createGain();
     master.gain.value = masterTarget();
     master.connect(ctx.destination);
+
+    commsBus = ctx.createGain();
+    commsBus.gain.value = muted ? 0 : 1;
+    commsBus.connect(ctx.destination);
 
     /* A tanh soft-clipper. Real explosions are distorted — the harmonics that
        adds are what separates a bang from a clean synthesised thump. Anything
@@ -661,7 +670,7 @@ const SFX = (() => {
     } else {
       osc.connect(g);
     }
-    g.connect(o.drive ? shaper : master);
+    g.connect(o.out || (o.drive ? shaper : master));
     osc.start(t0); osc.stop(t0 + o.dur + 0.03);
   }
 
@@ -681,7 +690,7 @@ const SFX = (() => {
     g.gain.linearRampToValueAtTime(o.gain, t0 + a);
     if (o.hold) g.gain.setValueAtTime(o.gain, t0 + a + o.hold);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
-    src.connect(f).connect(g).connect(o.drive ? shaper : master);
+    src.connect(f).connect(g).connect(o.out || (o.drive ? shaper : master));
     src.start(t0); src.stop(t0 + o.dur + 0.03);
   }
 
@@ -706,6 +715,39 @@ const SFX = (() => {
 
     // Pull the game down under a voice transmission so the two do not fight.
     duck(on){ ducked = !!on; applyMaster(); },
+
+    /* An open radio channel. The browser will not let us process the
+       synthesised voice itself — speech output is not reachable from Web
+       Audio on any platform — so the channel is built AROUND it instead: a
+       squelch click at each end and a band-limited hiss underneath. Between
+       that and the ducked game bed, it reads as a transmission.
+
+       Bandpassed at 1.7kHz and highpassed at 700Hz: real comms gear is
+       band-limited to roughly 300-3000Hz, and it is the missing bottom end
+       that makes a radio sound like a radio. */
+    comms(on){
+      if (!ctx) return;
+      if (on && !commsSrc){
+        commsSrc = ctx.createBufferSource(); commsSrc.buffer = noiseBuf; commsSrc.loop = true;
+        const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1700; bp.Q.value = 0.7;
+        const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 700;
+        commsGain = ctx.createGain(); commsGain.gain.value = 0.0001;
+        commsSrc.connect(bp).connect(hp).connect(commsGain).connect(commsBus);
+        commsSrc.start();
+        commsGain.gain.linearRampToValueAtTime(0.055, ctx.currentTime + 0.05);
+      } else if (!on && commsSrc){
+        release(commsSrc, commsGain, 0.14);
+        commsSrc = null; commsGain = null;
+      }
+    },
+
+    // The click as the channel keys open and drops closed.
+    squelch(open){
+      if (!ctx || muted) return;
+      tone({ freq: open ? 1600 : 900, to: open ? 950 : 460, dur:0.045,
+             type:'square', gain:0.09, lp:2800, out: commsBus });
+      noise({ dur:0.05, freq:3200, to:700, gain:0.10, out: commsBus });
+    },
 
     /* A square wave starting at 900Hz is all odd harmonics landing in the
        band the ear finds harshest — that is what "tingy" was. Triangle rolls
@@ -817,7 +859,7 @@ const SFX = (() => {
     },
 
     // Every voice down, now. Used on pause, death and mode changes.
-    silence(){ this.thrust(false); this.ufo(false); this.pull(0); },
+    silence(){ this.thrust(false); this.ufo(false); this.pull(0); this.comms(false); },
   };
 })();
 
@@ -829,7 +871,9 @@ const SFX = (() => {
    Keep them SHORT — a blurp, not a briefing. Anything longer is still being
    read out while the player is already dodging, and it stops registering.          */
 function sectorBrief(n){
-  if (n === 1) return 'Commander. Sector one. Clear the debris.';
+  // Sector one is the opening of the run and earns a longer line than the
+  // rest; everything after it is a blurp.
+  if (n === 1) return 'Commander, you have now entered Sector One. Clear the debris.';
   if (n === 2) return 'Gravity well detected.';
   if (n === 3) return 'Hostile contact.';
   if (n === 4) return 'Debris density rising.';
@@ -856,6 +900,7 @@ const VOICE = (() => {
   const KEY = 'sj.voice.v1';
   const synth = typeof speechSynthesis !== 'undefined' ? speechSynthesis : null;
   let on = true, voice = null, picked = false;
+  let guard = 0;   // ticks until the channel is forced shut, see tick()
   try { const v = localStorage.getItem(KEY); if (v !== null) on = v === '1'; } catch (e) {}
 
   /* getVoices() is empty on first call in most browsers and fills in later,
@@ -888,23 +933,36 @@ const VOICE = (() => {
       return on;
     },
     stop(){
+      guard = 0;
+      SFX.comms(false);
+      SFX.duck(false);          // never leave the game quiet after a cancel
       if (!synth) return;
       try { synth.cancel(); } catch (e) {}
-      SFX.duck(false);          // never leave the game quiet after a cancel
     },
+
+    /* speechSynthesis is notorious for dropping onend — a hung utterance
+       would leave the static bed open for the rest of the run. Counted in
+       ticks like every other timed value in this file, and generous: it is a
+       backstop, not the normal path. */
+    tick(){ if (guard > 0 && --guard === 0) this.stop(); },
     say(text){
       if (!synth || !on || SFX.muted) return false;
       try {
         synth.cancel();         // a fast sector clear must not stack briefings
         const u = new SpeechSynthesisUtterance(text);
         if (voice) u.voice = voice;
-        u.rate = 0.95; u.pitch = 0.85; u.volume = 0.9;
-        u.onstart = () => SFX.duck(true);
-        u.onend   = () => SFX.duck(false);
-        u.onerror = () => SFX.duck(false);
+        // Brisk. A comms officer reads faster than a narrator, and a slow
+        // line is still being read out while the player is already dodging.
+        u.rate = 1.2; u.pitch = 0.9; u.volume = 0.95;
+        const close = () => { guard = 0; SFX.comms(false); SFX.duck(false); };
+        u.onend = close; u.onerror = close;
+        // Opened here rather than on onstart, so the squelch pre-rolls the
+        // first syllable instead of landing on top of it.
+        SFX.duck(true); SFX.squelch(true); SFX.comms(true);
+        guard = Math.min(900, 90 + text.split(/s+/).length * 24);
         synth.speak(u);
         return true;
-      } catch (e){ SFX.duck(false); return false; }
+      } catch (e){ this.stop(); return false; }
     },
   };
 })();
@@ -1824,6 +1882,7 @@ const MAX_CATCHUP = 5;
 let lastTime = 0, accumulator = 0;
 
 function step(){
+  VOICE.tick();                      // watchdog, in ticks like everything else
   if (S.mode === 'playing'){ update(); return; }
   // Not playing: no held voice may survive a pause, a death or the title.
   SFX.silence();

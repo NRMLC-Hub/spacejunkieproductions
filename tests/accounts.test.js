@@ -401,7 +401,8 @@ section('sector transmissions');
   const V = run({ audio: true, voice: true });
   V.fireGlobal('keydown', { code: 'Space', key: ' ', preventDefault() {}, repeat: false });
   ok('sector one is spoken on launch',
-     V.speech.some(x => /^speak:Commander. Sector one/.test(x)), V.speech.join(" | "));
+     V.speech.some(x => /^speak:Commander, you have now entered Sector One/.test(x)),
+     V.speech.join(" | "));
   ok('the voice button appears when speech exists', V.el('btnVoice').hidden === false);
 
   // An English voice, not whichever happens to be first. The stub lists a
@@ -444,11 +445,38 @@ section('sector transmissions');
   // Briefs are blurps, not paragraphs.
   const brief = V.get('sectorBrief');
   let longest = 0;
-  for (let n = 1; n <= 60; n++) longest = Math.max(longest, brief(n).split(/s+/).length);
-  ok('every briefing is short enough to be over before the fight', longest <= 8,
+  for (let n = 2; n <= 60; n++) longest = Math.max(longest, brief(n).split(/s+/).length);
+  ok('every briefing after the first is a blurp, not a briefing', longest <= 8,
      longest + ' words');
+  // Sector one opens the run and is allowed more room than the rest.
+  ok('sector one is longer, but still not a speech',
+     brief(1).split(/s+/).length <= 12, brief(1).split(/s+/).length + ' words');
   ok('every sector has something to say',
      Array.from({ length: 60 }, (_, i) => brief(i + 1)).every(s => s && s.length > 5));
+
+  /* The radio channel. The synthesised voice itself cannot be filtered —
+     browsers do not expose speech output to Web Audio — so the channel is
+     built around it: a squelch click and a static bed on a bus that is muted
+     but never ducked, or it would vanish under the very duck it accompanies. */
+  const R = run({ audio: true, voice: true });
+  R.fireGlobal('keydown', { code: 'Space', key: ' ', preventDefault() {}, repeat: false });
+  const liveDuring = R.audioCtx.liveVoices;
+  ok('a transmission opens a static bed', liveDuring > 0);
+  ok('speech is brisk, not narrated', R.synth.last.rate >= 1.1, String(R.synth.last.rate));
+  R.synth.last.onend();
+  ok('the channel closes when the transmission ends',
+     R.audioCtx.liveVoices < liveDuring, R.audioCtx.liveVoices + ' vs ' + liveDuring);
+  ok('the game comes back up when the channel closes', R.masterGain().gain.value > 0.3);
+
+  // speechSynthesis is notorious for dropping onend. The watchdog is the only
+  // thing standing between that and static running for the rest of the run.
+  const Wd = run({ audio: true, voice: true });
+  Wd.fireGlobal('keydown', { code: 'Space', key: ' ', preventDefault() {}, repeat: false });
+  const stuck = Wd.audioCtx.liveVoices;
+  for (let i = 0; i < 1000; i++) Wd.get('step')();     // onend never arrives
+  ok('a hung utterance is force-closed by the watchdog',
+     Wd.audioCtx.liveVoices < stuck, Wd.audioCtx.liveVoices + ' vs ' + stuck);
+  ok('and the game is not left ducked forever', Wd.masterGain().gain.value > 0.3);
 }
 
 section('the world scales to the screen');
