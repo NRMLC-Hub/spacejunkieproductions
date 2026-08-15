@@ -19,6 +19,7 @@ offline, straight off the disk.
 | `↑` / `W` | Thrust |
 | `Space` | Fire |
 | `P` | Pause |
+| `M` | Sound on/off |
 
 Touch controls appear automatically on a coarse pointer, and the key legend
 hides itself there.
