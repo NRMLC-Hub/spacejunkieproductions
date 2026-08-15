@@ -124,6 +124,23 @@ them — no browser needed. See `tools/make-icons.js` for the same technique.
   gets dragged off course, or quietly expires short, makes designating
   meaningless.
 
+- **The pulse is the answer to "they all arrived at once"**, which is the
+  failure state this game naturally produces. A ring expanding from Earth
+  that clears what it passes, on a ten-second cooldown so it is a decision
+  rather than a rhythm. It travels rather than clearing instantly, on
+  purpose — you watch it reach the thing you are worried about, and anything
+  arriving behind it is still your problem.
+- **The felt slowness of shooting was FLIGHT TIME, not reload.** Missile
+  speed is the responsiveness dial; `cooldown` barely matters. If it ever
+  feels sluggish again, raise `missile.speed` before touching anything else.
+- **Split children come off slower and wider than the parent.** They used to
+  inherit up to 1.2x its speed, so breaking a rock made things worse and the
+  split chain was what actually killed you.
+- **Space starts a run AND fires.** Any test that launches a run must release
+  it, or the game auto-fires ballistic shots every tick, fills the in-flight
+  cap and silently ruins whatever is being measured. This has now cost two
+  debugging sessions, once in each game.
+
 ## Sound
 
 All synthesised at runtime in the `SFX` module. **Never add an audio file** —

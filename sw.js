@@ -12,7 +12,7 @@
    Bump CACHE_VERSION when the asset list changes; the activate handler then
    deletes every older cache.                                                */
 
-const CACHE_VERSION = 'singularity-v18';
+const CACHE_VERSION = 'singularity-v19';
 
 const ASSETS = [
   './',

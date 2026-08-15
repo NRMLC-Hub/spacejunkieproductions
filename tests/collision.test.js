@@ -12,7 +12,13 @@ function ok(name, cond, extra) {
   else { fail++; results.push('  FAIL  ' + name + (extra ? '   -> ' + extra : '')); }
 }
 const section = t => results.push('\n' + t);
-const launch = H => H.fireGlobal('keydown', { code: 'Space', key: ' ', preventDefault() {}, repeat: false });
+/* Space starts a run AND is the fire key, so it must be released — leaving
+   it held makes the game auto-fire ballistic shots every tick, which fills
+   the in-flight cap and silently ruins any measurement of anything else. */
+const launch = H => {
+  H.fireGlobal('keydown', { code: 'Space', key: ' ', preventDefault() {}, repeat: false });
+  H.fireGlobal('keyup', { code: 'Space' });
+};
 
 (async () => {
 
@@ -445,10 +451,13 @@ section('sustained fire is limited by tapping, not by the game');
   /* REGRESSION. max is the number IN FLIGHT and a guided shot holds its slot
      for the whole journey, so four slots meant a dead stop after three or
      four taps at anything but point-blank range. */
+  // Hold the wave open for the measurement: with nothing left to arrive it
+  // turns over immediately, and waveSetup clears the shots being counted.
   S.shots.length = 0; S.ship.cool = 0;
+  S.rocks.length = 0; S.queue = 99; S.spawnTimer = 1e9;
   let fired = 0;
   for (let i = 0; i < 400; i++) {
-    if (fire({ x: 1300, y: 450 })) fired++;      // long shots, ~80 ticks each
+    if (fire({ x: 1300, y: 450 })) fired++;
     step();
   }
   const perSecond = fired / (400 / 60);
@@ -458,6 +467,91 @@ section('sustained fire is limited by tapping, not by the game');
      String(C.missile.max));
   ok('and the reload is well under a fifth of a second', C.missile.cooldown <= 8,
      (C.missile.cooldown / 60).toFixed(2) + 's');
+}
+
+section('the pulse');
+{
+  const G = run({ audio: true, W: 1600, H: 900 });
+  launch(G);
+  const S = G.get('S'), C = G.get('CONFIG'), step = G.get('step'), mk = G.get('makeRock');
+  const pulse = G.get('firePulse');
+
+  ok('it starts ready', S.shockCool === 0);
+  ok('the HUD says so', G.el('pulseState').textContent === 'PULSE READY');
+
+  // Ring everything around Earth, then fire it.
+  S.rocks.length = 0; S.queue = 99; S.spawnTimer = 1e9;
+  for (const d of [200, 320, 480, 700]) S.rocks.push(mk(1, 1, { x: 800 + d, y: 450, vx: 0, vy: 0 }));
+  const before = S.rocks.length;
+  ok('firing it succeeds', pulse() === true);
+  ok('and it goes on cooldown', S.shockCool === C.shock.cooldown);
+  ok('a second one immediately after does not', pulse() === false);
+  ok('the HUD counts it down', /PULSE [0-9]+S/.test(G.el('pulseState').textContent),
+     G.el('pulseState').textContent);
+
+  // It is a travelling ring, not an instant clear — you watch it reach them.
+  step();
+  ok('it does not clear the far ones instantly', S.rocks.length > 0);
+  let n = 0;
+  while (S.rocks.length && n < 200) { step(); n++; }
+  ok('but it clears everything in its path as it passes', S.rocks.length === 0,
+     n + ' ticks');
+  ok('and scores for them', S.score > 0);
+  while (S.shockR >= 0 && n < 400) { step(); n++; }
+  ok('the ring is spent once it passes the field', S.shockR === -1);
+
+  // Rocks arriving behind it are still your problem.
+  const G2 = run({ audio: true, W: 1600, H: 900 });
+  launch(G2);
+  const S2 = G2.get('S'), st2 = G2.get('step');
+  S2.rocks.length = 0; S2.queue = 99; S2.spawnTimer = 1e9;
+  G2.get('firePulse')();
+  for (let i = 0; i < 120; i++) st2();
+  S2.rocks.push(G2.get('makeRock')(1, 1, { x: 1100, y: 450, vx: -1, vy: 0 }));
+  for (let i = 0; i < 60; i++) st2();
+  ok('a rock arriving after the ring has passed survives it', S2.rocks.length === 1);
+
+  // A fresh run gets a fresh charge.
+  const G3 = run({ audio: true, W: 1600, H: 900 });
+  launch(G3);
+  G3.get('S').shockCool = 400;
+  G3.get('newGame')();
+  ok('a new run starts with the pulse ready', G3.get('S').shockCool === 0);
+  ok('and with no ring left over', G3.get('S').shockR === -1);
+
+  // Reachable by key and by button.
+  const fs2 = require('fs'), path2 = require('path');
+  const html = fs2.readFileSync(path2.join(__dirname, '..', 'collision.html'), 'utf8');
+  ok('there is a pulse button on touch', /data-k="shock"/.test(html));
+  ok('and a key for it', /KeyE:'shock'/.test(html));
+  ok('the cooldown is long enough to be a decision', C.shock.cooldown >= 480,
+     (C.shock.cooldown / 60).toFixed(0) + 's');
+}
+
+section('a wave never ends while rocks are still inbound');
+{
+  /* REGRESSION. The end condition asked only whether a rock was ON the field,
+     but rocks SPAWN outside it — so a wave could end the instant its last
+     rock was queued, wiping it mid-approach. */
+  const G = run({ audio: true, W: 1600, H: 900 });
+  launch(G);
+  const S = G.get('S'), step = G.get('step'), A = G.get('ARENA'), mk = G.get('makeRock');
+  S.rocks.length = 0; S.queue = 0;
+  // Outside the arena, heading straight in — exactly a freshly spawned rock.
+  S.rocks.push(mk(2, 1, { x: 800 + A * 1.08, y: 450, vx: -1.5, vy: 0 }));
+  for (let i = 0; i < 30; i++) step();
+  ok('an inbound rock outside the arena keeps the wave open', S.wave === 1);
+  ok('and it is not wiped', S.rocks.length === 1);
+
+  // Same position, heading away: that one is nobody's problem.
+  const G2 = run({ audio: true, W: 1600, H: 900 });
+  launch(G2);
+  const S2 = G2.get('S'), st2 = G2.get('step'), A2 = G2.get('ARENA');
+  S2.rocks.length = 0; S2.queue = 0;
+  S2.rocks.push(G2.get('makeRock')(2, 1, { x: 800 + A2 * 1.08, y: 450, vx: 0.05, vy: 0 }));
+  let n = 0;
+  while (S2.wave === 1 && n < 120) { st2(); n++; }
+  ok('an outbound straggler does not', S2.wave === 2, n + ' ticks');
 }
 
 section('audio never breaks the game');

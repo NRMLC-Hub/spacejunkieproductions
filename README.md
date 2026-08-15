@@ -191,6 +191,12 @@ how long the flight takes, so taking station never stops mattering.
 keyboard fallback and it is worse on purpose — gravity bends it, and it goes
 where you are pointing rather than where you want it.
 
+When everything arrives at once — and it will — the **pulse** is the answer: a
+ring that expands from Earth and clears what it passes through, on a
+ten-second cooldown. It travels rather than clearing instantly, so you watch
+it reach the thing you were worried about, and anything arriving behind it is
+still yours to deal with.
+
 Earth's gravity is what makes it a game rather than a shooting gallery. It
 pulls every rock inward, so nothing travels in a straight line, and a near miss
 does not leave — it swings around and comes back at you from a new angle.
@@ -201,6 +207,7 @@ does not leave — it swings around and comes back at you from a new angle.
 | `↑` `↓` / `W` `S` | Altitude |
 | Tap / Click | Designate an intercept |
 | `Space` | Launch straight out |
+| `E` / `Shift` | Pulse |
 | `P` | Pause |
 | `M` | Sound on/off |
 
@@ -214,7 +221,7 @@ side of the orbit and out of the fight for a moment.
 node tests/collision.test.js
 ```
 
-98 assertions. Alongside the gameplay they pin the things most likely to erode:
+117 assertions. Alongside the gameplay they pin the things most likely to erode:
 that no torus machinery has crept in from SINGULARITY, that the ship never
 leaves its rail, that Earth's impact sound uses no pitched oscillator, and that
 the fixed timestep still holds at 60/144/30Hz.
