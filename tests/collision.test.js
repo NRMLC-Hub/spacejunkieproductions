@@ -225,6 +225,82 @@ section('rocks fall toward Earth and can be shot');
   ok('the smallest just vaporise', S3.rocks.length === 0);
 }
 
+section('strays leave promptly, but only when they are really gone');
+{
+  const G = run({ audio: true, W: 1600, H: 900 });
+  launch(G);
+  const S = G.get('S'), step = G.get('step'), mk = G.get('makeRock');
+  const A = G.get('ARENA'), esc = G.get('escaping');
+
+  /* REGRESSION. Strays used to be culled at 2.6x the arena radius, which a
+     rock crosses in about twenty seconds — so the field looked clear and the
+     next wave would not start. They travel at roughly 2.8x escape speed, so
+     they were never coming back and the wait bought nothing. */
+  S.rocks.length = 0; S.queue = 0;
+  S.rocks.push(mk(3, 1, { x: 800 + A * 1.1, y: 450, vx: 3, vy: 0 }));   // outbound, fast
+  ok('a rock past the edge at speed is counted as gone', esc(S.rocks[0]) === true);
+  let ticks = 0;
+  while (S.rocks.length && ticks < 120) { step(); ticks++; }
+  ok('and it is removed within a couple of seconds', ticks < 120, ticks + ' ticks');
+
+  // But the near-misses gravity curls back must survive.
+  const G2 = run({ audio: true, W: 1600, H: 900 });
+  launch(G2);
+  const S2 = G2.get('S'), esc2 = G2.get('escaping');
+  S2.rocks.length = 0; S2.queue = 0;
+  const slow = mk(3, 1, { x: 800 + A * 1.1, y: 450, vx: 0.1, vy: 0 });  // outbound, crawling
+  S2.rocks.push(slow);
+  ok('a rock below escape speed is NOT counted as gone', esc2(slow) === false);
+  const back = mk(3, 1, { x: 800 + A * 1.1, y: 450, vx: -3, vy: 0 });   // heading back in
+  ok('a rock heading back in is never counted as gone', esc2(back) === false);
+  const near = mk(3, 1, { x: 800 + 200, y: 450, vx: 5, vy: 0 });        // fast but on the field
+  ok('a rock still on the field is never counted as gone', esc2(near) === false);
+
+  // The whole point: the wave turns over as soon as the field is actually clear.
+  const G3 = run({ audio: true, W: 1600, H: 900 });
+  launch(G3);
+  const S3 = G3.get('S'), st3 = G3.get('step');
+  S3.rocks.length = 0; S3.queue = 0;
+  S3.rocks.push(G3.get('makeRock')(1, 1, { x: 800 + A * 1.1, y: 450, vx: 4, vy: 0 }));
+  let n = 0;
+  while (S3.wave === 1 && n < 180) { st3(); n++; }
+  ok('the next wave starts within three seconds of the last stray leaving',
+     S3.wave === 2, n + ' ticks');
+}
+
+section('rapid tapping must never read as a zoom gesture');
+{
+  // The field is the fire button here, so tapping fast is the normal way to
+  // play — and it is exactly the gesture iOS reads as double-tap-to-zoom.
+  // iOS ignores user-scalable=no, so the page has to stop it itself.
+  const T = run({ audio: true, media: { '(pointer: coarse)': true } });
+  let prevented = 0;
+  for (const ts of [1000, 1080, 1160]) {
+    T.fireGlobal('touchend', {
+      timeStamp: ts, target: { closest: () => null },
+      preventDefault() { prevented++; },
+    });
+  }
+  ok('every tap on the field suppresses the browser default', prevented === 3);
+
+  let onButton = 0;
+  T.fireGlobal('touchend', {
+    timeStamp: 2000, target: { closest: sel => (sel.includes('button') ? {} : null) },
+    preventDefault() { onButton++; },
+  });
+  ok('taps on a button are left alone so their clicks still fire', onButton === 0);
+
+  const D = run({ audio: true });          // fine pointer: no guard installed
+  let desk = 0;
+  for (const ts of [1000, 1080]) {
+    D.fireGlobal('touchend', {
+      timeStamp: ts, target: { closest: () => null },
+      preventDefault() { desk++; },
+    });
+  }
+  ok('the guard is not installed on a desktop pointer', desk === 0);
+}
+
 section('Earth takes damage and the run ends');
 {
   const G = run({ audio: true, W: 1600, H: 900 });

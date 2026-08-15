@@ -558,6 +558,17 @@ if (matchMedia('(pointer: coarse)').matches){
     btn.addEventListener('pointercancel', off);
     btn.addEventListener('pointerleave', off);
   });
+
+  /* iOS ignores user-scalable=no and maximum-scale outright, and in THIS game
+     the field is the fire button — rapid tapping is the normal way to play,
+     which is exactly the gesture a browser reads as double-tap-to-zoom.
+     touch-action:none on the canvas is not enough on its own; suppressing the
+     default on touchend is what actually stops it. Buttons are exempt so
+     their clicks still register. */
+  addEventListener('touchend', e => {
+    if (e.target && e.target.closest && e.target.closest('button')) return;
+    e.preventDefault();
+  }, { passive:false });
 }
 
 /* Bound to #stage rather than the canvas, because the overlays sit above the
@@ -676,6 +687,26 @@ function fieldToWorld(ev){
   return { x:(ev.clientX - rect.left) / VIEW, y:(ev.clientY - rect.top) / VIEW };
 }
 
+/* A stray is only worth tracking while it could still come back.
+
+   Past the edge of the field, moving outward, and above escape speed, it
+   never will. Waiting for such a rock to drift to a fixed cull radius was up
+   to twenty seconds of empty screen before the next wave — the field looked
+   clear and the game disagreed.
+
+   Anything slower than escape speed is still on a leash and stays, so the
+   near-misses gravity curls back around are untouched. That deflection
+   happens inside the arena, which is where it is worth watching anyway. */
+function escaping(o){
+  const dx = o.x - cx(), dy = o.y - cy();
+  const d = Math.hypot(dx, dy);
+  if (d < ARENA * 1.06) return false;                  // still on the field
+  const outward = (o.vx*dx + o.vy*dy) / d;
+  if (outward <= 0) return false;                      // heading back in
+  const vEsc = Math.sqrt(2 * CONFIG.gravity.pull * 0.016 / d);
+  return Math.hypot(o.vx, o.vy) > vEsc;
+}
+
 /* ------------------------------- gravity --------------------------------
    Earth attracts everything free. This is the same shared rule SINGULARITY
    uses for its black holes, pointed the other way round: there it is the
@@ -754,9 +785,11 @@ function update(){
     const r = S.rocks[i];
     applyGravity(r);
     r.x += r.vx; r.y += r.vy; r.a += r.spin;
-    // A miss is only gone once it is well clear. Anything nearer than that
-    // is still on a leash and may be curling back around.
-    if (Math.hypot(r.x-cx(), r.y-cy()) > ARENA*CONFIG.cullRadius) S.rocks.splice(i,1);
+    // Gone the moment it is provably gone; cullRadius is only a backstop for
+    // anything that drifts out below escape speed.
+    if (escaping(r) || Math.hypot(r.x-cx(), r.y-cy()) > ARENA*CONFIG.cullRadius){
+      S.rocks.splice(i,1);
+    }
   }
 
   /* --- particles --- */

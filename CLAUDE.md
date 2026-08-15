@@ -95,6 +95,24 @@ money, ask someone qualified.
 New silhouettes were designed by rasterising candidates to PNG and looking at
 them — no browser needed. See `tools/make-icons.js` for the same technique.
 
+## COLLISION specifics
+
+- **A stray is culled once it is provably escaping**, not at a fixed radius:
+  past the edge, moving outward, above escape speed. A fixed 2.6x-arena cull
+  meant up to twenty seconds of empty screen before the next wave, because
+  rocks leave at roughly 2.8x escape speed and were never coming back anyway.
+  Anything below escape speed stays, so the near-misses gravity curls back
+  around are untouched.
+- **Rapid tapping is the fire control**, which is exactly the gesture iOS
+  reads as double-tap-to-zoom — and iOS ignores `user-scalable=no`.
+  `touch-action:none` on the canvas is NOT enough on its own; the touchend
+  handler that suppresses the default is what actually stops it. Buttons are
+  exempt so their clicks still register. Do not remove it.
+- Guided missiles ignore gravity and carry fuel scaled to the distance of the
+  point they were sent to. Both are deliberate: a designated intercept that
+  gets dragged off course, or quietly expires short, makes designating
+  meaningless.
+
 ## Sound
 
 All synthesised at runtime in the `SFX` module. **Never add an audio file** —
