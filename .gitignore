@@ -1,0 +1,12 @@
+# This project has no build step and no dependencies. Nothing here should ever
+# need node_modules; if it appears, something went wrong.
+node_modules/
+package-lock.json
+
+# OS / editor noise
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+*.swp

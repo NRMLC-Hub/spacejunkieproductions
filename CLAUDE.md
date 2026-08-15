@@ -1,0 +1,80 @@
+# spacejunkieproductions — project instructions
+
+Owner: Martin Bradford Hovsepian Jr.
+
+**SINGULARITY** — a self-contained vector arcade shooter. This repo holds the
+game and nothing else. It was split out of `E:\spacejunkie` on 2026-08-15 so it
+could be published publicly without carrying the NRM research material into a
+public git history.
+
+Read `README.md` for the human-facing overview, including the architecture notes.
+This file is the working context.
+
+## Ground rules
+
+- **To run it: open `singularity.html`.** No build step, no server, no
+  dependencies. Do not introduce a framework, bundler, or package manager unless
+  explicitly asked.
+- `index.html` is a redirect to `singularity.html`, not a second copy. GitHub
+  Pages needs an `index.html` at the root; the game keeps its deliberate name.
+  A duplicate `index.html` was deleted once already — do not reintroduce one.
+- **No browser automation.** Never drive a browser to check this. Martin's
+  browser holds sensitive financial data and driving that live session risks
+  exposing it. To show something works, give him a path or URL and let him open
+  it.
+- **Verify headlessly instead**: `node tests/accounts.test.js`. The harness in
+  `tests/harness.js` extracts the inline `<script>` and runs it in a Node `vm`
+  context against stub DOM objects. This catches real bugs — it confirmed the
+  fixed-timestep fix, and the whole accounts feature was built against it.
+  Add to it rather than testing by hand.
+- **Correct the record in files, not just in chat.** Findings that only live in
+  a conversation are lost when the session ends.
+
+## The artifact rule
+
+Inherited from the parent project and it applies here too:
+
+> **A document may only claim a result if an artifact exists that produced it,
+> and that artifact can be re-run.**
+
+The README says "72 assertions" because `node tests/accounts.test.js` prints 72
+and exits non-zero if any fail. Never present illustrative output as a
+measurement.
+
+## Accounts — what is and is not true
+
+Accounts are `localStorage`. One browser, one machine. **There is no shared
+leaderboard**, and no marketing, README line or commit message should imply
+otherwise. "TOP TEN" is the top ten of everyone who has played on that machine.
+
+Passwords are PBKDF2-SHA256, 150k iterations, 16-byte random salt per account,
+iteration count stored per record so it can be raised later without locking
+anyone out. Recovery codes are hashed under a separate salt. Wrong-password and
+unknown-callsign return an identical error so the form cannot be used to
+enumerate accounts.
+
+Anything client-side can be cheated — a player can edit `localStorage` or, on a
+future server, POST a fabricated score. That is acceptable for a friends
+leaderboard and should not be described as anything stronger.
+
+### Adding a shared leaderboard
+
+`Store` is the only thing that touches storage. It has eight async methods:
+`ready`, `currentUser`, `signUp`, `signIn`, `signOut`, `resetPassword`,
+`submitScore`, `topTen`. Every call site already awaits them even though
+`localStorage` is synchronous, precisely so a hosted backend drops in as one more
+object with the same eight methods and `Store` is reassigned. **Do not spread
+storage calls out of that object.**
+
+If this goes to Supabase: the anon key is designed to live in public client code
+and is fine to commit; the **service role key is not, ever**. Protection comes
+from row-level security — a signed-in player may insert only their own scores,
+everyone may read the top ten.
+
+## Related projects
+
+- `E:\spacejunkie` — the NRM theoretical physics program, and the fictional
+  universe this game's setting comes from. Private. Do not merge it in here.
+- `E:\ncoin` — its own git repo, its own `CLAUDE.md`. Do not work on it from
+  here. If the games ever become NCoin's activity layer, connect them through a
+  documented API — two projects, one interface.

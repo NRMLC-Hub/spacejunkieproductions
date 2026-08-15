@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>SINGULARITY</title>
+<style>
+  :root{
+    --ink:#ffffff;
+    --dim:#8a8a8a;
+    --faint:#3a3a3a;
+    --void:#000000;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--void);overflow:hidden}
+  body{
+    font-family:var(--mono);
+    color:var(--ink);
+    display:flex;align-items:center;justify-content:center;
+    -webkit-tap-highlight-color:transparent;
+    touch-action:none;
+  }
+
+  #stage{position:relative;width:100vw;height:100vh;overflow:hidden}
+  canvas{display:block;width:100%;height:100%}
+
+  /* CRT treatment — scanlines + vignette, sits above the canvas */
+  #stage::after{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:
+      repeating-linear-gradient(to bottom, rgba(0,0,0,.28) 0 1px, transparent 1px 3px),
+      radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.85) 100%);
+  }
+
+  /* ---- HUD ---- */
+  #hud{
+    position:absolute;inset:0;pointer-events:none;
+    padding:18px 22px;
+    display:flex;justify-content:space-between;align-items:flex-start;
+    font-size:13px;letter-spacing:.22em;text-transform:uppercase;
+  }
+  .hud-block{display:flex;flex-direction:column;gap:4px}
+  .hud-label{color:var(--dim);font-size:10px;letter-spacing:.3em}
+  .hud-value{font-size:17px;letter-spacing:.14em}
+  .hud-sub{color:var(--dim);font-size:10px;letter-spacing:.24em}
+  #hud .right{text-align:right}
+  #lives{display:flex;gap:7px;height:16px;align-items:center}
+  #lives svg{overflow:visible}
+
+  /* ---- Overlays ---- */
+  .screen{
+    position:absolute;inset:0;display:none;
+    flex-direction:column;align-items:center;justify-content:safe center;
+    text-align:center;gap:22px;padding:24px;
+    background:rgba(0,0,0,.72);
+    overflow-y:auto;   /* these screens grew a leaderboard; short viewports scroll */
+  }
+  .screen.show{display:flex}
+  .title{
+    font-size:clamp(34px,9vw,76px);
+    letter-spacing:.34em;text-indent:.34em;font-weight:400;
+    text-shadow:0 0 22px rgba(255,255,255,.35);
+  }
+  .rule{width:min(340px,70vw);height:1px;background:var(--faint)}
+  .sub{color:var(--dim);font-size:12px;letter-spacing:.26em;text-transform:uppercase;line-height:2.1}
+  .sub b{color:var(--ink);font-weight:400}
+  .big{font-size:clamp(24px,6vw,42px);letter-spacing:.28em;text-indent:.28em}
+  .prompt{font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:var(--ink)}
+  .blink{animation:blink 1.2s steps(2,start) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .keys{display:grid;grid-template-columns:auto auto;gap:8px 18px;font-size:11px;
+        letter-spacing:.16em;color:var(--dim);text-transform:uppercase}
+  .keys span:first-child{color:var(--ink)}
+
+  /* ---- Pilot / auth forms ---- */
+  [hidden]{display:none !important}
+  .panel{width:min(400px,86vw);display:flex;flex-direction:column;gap:16px}
+  .field{display:flex;flex-direction:column;gap:6px;text-align:left}
+  .field label{font-size:10px;letter-spacing:.3em;color:var(--dim);text-transform:uppercase}
+  .field input{
+    background:transparent;border:0;border-bottom:1px solid var(--faint);
+    color:var(--ink);font-family:var(--mono);font-size:15px;letter-spacing:.14em;
+    padding:7px 2px;outline:none;border-radius:0;
+  }
+  .field input:focus{border-bottom-color:var(--ink)}
+  .field .hint{font-size:10px;letter-spacing:.16em;color:var(--faint);text-transform:uppercase}
+  .row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .action{
+    background:transparent;border:1px solid var(--dim);color:var(--ink);
+    font-family:var(--mono);font-size:11px;letter-spacing:.26em;text-transform:uppercase;
+    padding:10px 18px;cursor:pointer;
+  }
+  .action:hover,.action:focus-visible{background:rgba(255,255,255,.14);border-color:var(--ink);outline:none}
+  .action[disabled]{opacity:.4;cursor:default}
+  .action.ghost{border-color:transparent;color:var(--dim);padding:6px 10px;letter-spacing:.2em}
+  .action.ghost:hover,.action.ghost:focus-visible{background:transparent;color:var(--ink);text-decoration:underline}
+  .err{font-size:11px;letter-spacing:.16em;text-transform:uppercase;min-height:15px;line-height:1.4}
+  .code{font-size:clamp(15px,4.4vw,26px);letter-spacing:.28em;text-indent:.28em;padding:6px 0}
+  .warn{color:var(--dim);font-size:10px;letter-spacing:.18em;text-transform:uppercase;line-height:1.9}
+
+  /* ---- Leaderboard ---- */
+  .board{width:min(360px,84vw);font-size:12px;letter-spacing:.12em}
+  .board .hd{font-size:10px;letter-spacing:.3em;color:var(--dim);text-transform:uppercase;margin-bottom:9px}
+  .board ol{list-style:none;display:flex;flex-direction:column;gap:5px}
+  .board li{display:grid;grid-template-columns:24px 1fr auto;gap:10px;color:var(--dim);align-items:baseline}
+  .board li.me{color:var(--ink)}
+  .board .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
+  .board .sc{font-variant-numeric:tabular-nums}
+  .board .empty{color:var(--faint);font-size:11px;letter-spacing:.2em;text-transform:uppercase}
+
+  /* Level banner */
+  #banner{
+    position:absolute;inset:0;display:none;flex-direction:column;
+    align-items:center;justify-content:center;gap:10px;pointer-events:none;
+  }
+  #banner.show{display:flex}
+  #banner .n{font-size:clamp(28px,7vw,52px);letter-spacing:.3em;text-indent:.3em}
+  #banner .t{font-size:11px;letter-spacing:.34em;color:var(--dim);text-transform:uppercase}
+
+  /* ---- Touch controls ---- */
+  #touch{position:absolute;inset:0;display:none;pointer-events:none}
+  #touch.show{display:block}
+  .pad{
+    position:absolute;bottom:26px;pointer-events:auto;
+    display:flex;gap:14px;
+  }
+  .pad.left{left:22px}
+  .pad.right{right:22px}
+  .btn{
+    width:62px;height:62px;border:1px solid var(--dim);border-radius:50%;
+    background:rgba(0,0,0,.35);color:var(--ink);
+    display:flex;align-items:center;justify-content:center;
+    font-size:12px;letter-spacing:.1em;
+  }
+  .btn:active,.btn.on{background:rgba(255,255,255,.16)}
+  .btn.fire{width:74px;height:74px}
+  @media (prefers-reduced-motion: reduce){ .blink{animation:none} }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div class="hud-block">
+      <div class="hud-label">Score</div>
+      <div class="hud-value" id="score">000000</div>
+      <div class="hud-sub" id="hudBest"></div>
+    </div>
+    <div class="hud-block" style="align-items:center">
+      <div class="hud-label">Sector</div>
+      <div class="hud-value" id="level">01</div>
+    </div>
+    <div class="hud-block right" style="align-items:flex-end">
+      <div class="hud-label">Hulls</div>
+      <div id="lives"></div>
+    </div>
+  </div>
+
+  <div id="banner"><div class="n" id="bannerN">SECTOR 01</div><div class="t" id="bannerT"></div></div>
+
+  <div class="screen show" id="titleScreen">
+    <div class="title">SINGULARITY</div>
+    <div class="rule"></div>
+    <div class="sub">
+      Clear the debris field. <b>Aliens</b> hunt you.<br>
+      <b>Black holes</b> pull everything in — including your shots.
+    </div>
+    <div class="keys">
+      <span>&#8592; &#8594; / A D</span><span>Rotate</span>
+      <span>&#8593; / W</span><span>Thrust</span>
+      <span>Space</span><span>Fire</span>
+      <span>P</span><span>Pause</span>
+    </div>
+    <div class="board" id="titleBoard"></div>
+    <div class="sub" id="pilotLine"></div>
+    <div class="row">
+      <button class="action" id="btnSignIn">Sign in</button>
+      <button class="action" id="btnSignUp">New pilot</button>
+      <button class="action ghost" id="btnSignOut" hidden>Sign out</button>
+    </div>
+    <div class="warn" id="storageWarn" hidden></div>
+    <div class="prompt blink" id="startPrompt">Press Space to launch</div>
+  </div>
+
+  <div class="screen" id="pauseScreen">
+    <div class="big">PAUSED</div>
+    <div class="prompt">Press P to resume</div>
+  </div>
+
+  <div class="screen" id="overScreen">
+    <div class="big" id="overTitle">GAME OVER</div>
+    <div class="rule"></div>
+    <div class="sub">Score <b id="finalScore">000000</b><br>Reached <b id="finalLevel">Sector 01</b></div>
+    <div class="sub" id="overPilot"></div>
+    <div class="board" id="overBoard"></div>
+    <div class="prompt blink">Press Space to fly again</div>
+  </div>
+
+  <!-- Sign in / new pilot / recover, all one form with fields toggled. -->
+  <div class="screen" id="authScreen">
+    <div class="big" id="authTitle">SIGN IN</div>
+    <div class="rule"></div>
+    <div class="panel">
+      <div class="field">
+        <label for="authName">Callsign</label>
+        <input id="authName" maxlength="16" spellcheck="false" autocomplete="username"
+               autocapitalize="off" enterkeyhint="go">
+        <div class="hint" id="authNameHint" hidden>2&ndash;16 chars: letters, digits, . _ -</div>
+      </div>
+      <div class="field" id="fieldCode" hidden>
+        <label for="authCode">Recovery code</label>
+        <input id="authCode" spellcheck="false" autocomplete="off" autocapitalize="characters"
+               placeholder="SNGL-XXXX-XXXX" enterkeyhint="go">
+      </div>
+      <div class="field" id="fieldPw">
+        <label for="authPw" id="authPwLabel">Password</label>
+        <input id="authPw" type="password" autocomplete="current-password" enterkeyhint="go">
+      </div>
+      <div class="field" id="fieldPw2" hidden>
+        <label for="authPw2">Confirm password</label>
+        <input id="authPw2" type="password" autocomplete="new-password" enterkeyhint="go">
+      </div>
+      <div class="err" id="authErr"></div>
+      <div class="row">
+        <button class="action" id="authGo">Sign in</button>
+        <button class="action ghost" id="authCancel">Back</button>
+      </div>
+      <div class="row">
+        <button class="action ghost" id="authSwap">New pilot</button>
+        <button class="action ghost" id="authForgot">Forgot password</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shown once, immediately after signup. The code is never recoverable later. -->
+  <div class="screen" id="codeScreen">
+    <div class="big">RECOVERY CODE</div>
+    <div class="rule"></div>
+    <div class="sub">The only way back into <b id="codeName">&mdash;</b><br>if the password is lost. Write it down.</div>
+    <div class="code" id="codeValue">&mdash;</div>
+    <div class="err" id="codeMsg"></div>
+    <div class="row">
+      <button class="action" id="codeCopy">Copy</button>
+      <button class="action" id="codeDone">I've saved it</button>
+    </div>
+  </div>
+
+  <div id="touch">
+    <div class="pad left">
+      <div class="btn" data-k="left">&#8592;</div>
+      <div class="btn" data-k="right">&#8594;</div>
+    </div>
+    <div class="pad right">
+      <div class="btn" data-k="thrust">&#9650;</div>
+      <div class="btn fire" data-k="fire">FIRE</div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =========================================================================
+   SINGULARITY — a monochrome vector shooter
+   Everything lives in this one file. The tuning knobs you'll want first are
+   in CONFIG and in levelSetup(). Read those two before anything else.
+   ========================================================================= */
+
+const CONFIG = {
+  ship:      { radius:11, turn:4.6, thrust:0.26, drag:0.992, maxSpeed:8 },
+  bullet:    { speed:7.4, life:62, cooldown:9, max:5, radius:2 },
+  alienBullet:{ speed:3.4, life:150, radius:2.5 },
+  rock:      { sizes:{3:34, 2:21, 1:12}, score:{3:20, 2:50, 1:100} },
+  alien:     { big:{r:19, score:200, fireRate:105, speed:1.15},
+               small:{r:12, score:500, fireRate:70, speed:1.9} },
+  hole:      { core:15, reach:290, pull:2600 },
+  invuln:    120,          // frames of respawn immunity
+  extraLife: 10000,        // bonus hull every N points
+  startLives:3
+};
+
+const stage = document.getElementById('stage');
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+let W = 0, H = 0, DPR = 1;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = canvas.clientWidth; H = canvas.clientHeight;
+  canvas.width  = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+}
+// Stars are laid out for a specific W/H, so they have to be rebuilt when it
+// changes — otherwise they stay bunched in the old rectangle.
+window.addEventListener('resize', () => { resize(); makeStars(); });
+
+/* ---------- math helpers (the world is a torus: everything wraps) -------- */
+const TAU = Math.PI*2;
+const rand  = (a,b) => a + Math.random()*(b-a);
+const randi = (a,b) => Math.floor(rand(a,b+1));
+const pick  = arr => arr[randi(0,arr.length-1)];
+
+function wrapPos(o){
+  if (o.x < 0) o.x += W; else if (o.x >= W) o.x -= W;
+  if (o.y < 0) o.y += H; else if (o.y >= H) o.y -= H;
+}
+// shortest delta across the wrap seam
+function delta(ax, ay, bx, by){
+  let dx = bx - ax, dy = by - ay;
+  if (dx >  W/2) dx -= W; else if (dx < -W/2) dx += W;
+  if (dy >  H/2) dy -= H; else if (dy < -H/2) dy += H;
+  return [dx, dy];
+}
+function dist(a, b){ const [dx,dy] = delta(a.x,a.y,b.x,b.y); return Math.hypot(dx,dy); }
+function hit(a, b, pad=0){ return dist(a,b) < a.r + b.r + pad; }
+
+/* Draw an object once per visible wrap-copy, so shapes crossing an edge
+   appear on both sides instead of popping. */
+function drawWrapped(o, draw){
+  const r = (o.r || 0) + 40;   // particles carry no radius
+  const xs = [0]; if (o.x < r) xs.push(W); else if (o.x > W-r) xs.push(-W);
+  const ys = [0]; if (o.y < r) ys.push(H); else if (o.y > H-r) ys.push(-H);
+  for (const ox of xs) for (const oy of ys){
+    ctx.save(); ctx.translate(o.x+ox, o.y+oy); draw(); ctx.restore();
+  }
+}
+
+/* ------------------------------ game state ------------------------------ */
+const S = {
+  mode:'title',            // title | playing | paused | over
+  ui:null,                 // modal overlay on top: null | 'auth' | 'code'
+  ship:null, bullets:[], rocks:[], aliens:[], alienShots:[], holes:[],
+  bits:[], stars:[],
+  score:0, lives:CONFIG.startLives, level:1,
+  nextLife:CONFIG.extraLife,
+  alienQueue:0, alienTimer:0, respawnTimer:0, shake:0, frame:0
+};
+
+/* ------------------------------ starfield ------------------------------- */
+function makeStars(){
+  S.stars = [];
+  const n = Math.round((W*H)/9000);
+  for (let i=0;i<n;i++) S.stars.push({x:rand(0,W), y:rand(0,H), z:rand(.25,1)});
+}
+
+/* ------------------------------ spawning -------------------------------- */
+function makeShip(spot){
+  const p = spot || { x:W/2, y:H/2 };
+  return { x:p.x, y:p.y, vx:0, vy:0, a:-Math.PI/2, r:CONFIG.ship.radius,
+           thrusting:false, cool:0, invuln:CONFIG.invuln };
+}
+
+/* A respawn point is safe only if nothing is sitting on it AND no black hole
+   is close enough to drag the ship in before its immunity expires. Immunity
+   makes you untouchable, not weightless — you still fall. */
+function spawnSafe(x, y){
+  const probe = { x, y, r:70 };
+  if (S.rocks.some(o => hit(o, probe))) return false;
+  if (S.aliens.some(o => hit(o, probe))) return false;
+  if (S.holes.some(h => dist(probe, h) < CONFIG.hole.core + 150)) return false;
+  return true;
+}
+function findSpawnSpot(){
+  if (spawnSafe(W/2, H/2)) return { x:W/2, y:H/2 };   // centre is always preferred
+  for (let i=0;i<60;i++){
+    const x = rand(W*.1, W*.9), y = rand(H*.1, H*.9);
+    if (spawnSafe(x, y)) return { x, y };
+  }
+  return null;
+}
+
+function makeRock(size, x, y, speedScale){
+  const r = CONFIG.rock.sizes[size];
+  if (x === undefined){
+    // Keep clear of the player. Bounded: on a viewport too small to hold a
+    // 170px gap every candidate fails, and an unbounded loop would hang.
+    let tries = 0;
+    do { x = rand(0,W); y = rand(0,H); tries++; }
+    while (tries < 40 && S.ship && dist({x,y}, S.ship) < 170);
+  }
+  const ang = rand(0, TAU), sp = rand(.35, 1.05) * speedScale;
+  // irregular silhouette, generated once and reused
+  const pts = [], n = randi(8,12);
+  for (let i=0;i<n;i++) pts.push(rand(.68,1.18));
+  return { x, y, vx:Math.cos(ang)*sp, vy:Math.sin(ang)*sp, r, size,
+           a:rand(0,TAU), spin:rand(-.02,.02), pts };
+}
+
+function makeAlien(kind){
+  const c = CONFIG.alien[kind];
+  const fromLeft = Math.random() < .5;
+  return { kind, x: fromLeft ? -30 : W+30, y: rand(H*.15, H*.85),
+           vx: (fromLeft?1:-1) * c.speed, vy:0, r:c.r,
+           cool: randi(30, c.fireRate), turn: randi(40,90), entered:false };
+}
+
+function makeHole(){
+  let x, y, tries = 0;
+  do {
+    x = rand(W*.12, W*.88); y = rand(H*.12, H*.88); tries++;
+  } while (tries < 40 && (
+      Math.hypot(x-W/2, y-H/2) < 190 ||
+      S.holes.some(h => Math.hypot(h.x-x, h.y-y) < 260)));
+  return { x, y, r:CONFIG.hole.core, spin:rand(0,TAU), drift:rand(.004,.011)*(Math.random()<.5?-1:1) };
+}
+
+function burst(x, y, count, spread=2.6, life=34){
+  for (let i=0;i<count;i++){
+    const a = rand(0,TAU), s = rand(.4, spread);
+    S.bits.push({ x, y, vx:Math.cos(a)*s, vy:Math.sin(a)*s,
+                  life:rand(life*.5, life), max:life, len:rand(2,7), a });
+  }
+}
+
+/* ---------------------------- level structure ---------------------------
+   Difficulty rides on four dials. Tweak these numbers first — they change
+   how the game feels far more than anything else in the file.            */
+function levelSetup(n){
+  const rockCount  = Math.min(3 + n, 11);
+  const rockSpeed  = 1 + (n-1) * 0.12;
+  const holeCount  = n < 2 ? 0 : Math.min(1 + Math.floor((n-2)/2), 4);
+  const alienCount = n < 3 ? 0 : Math.min(Math.floor((n-1)/2), 6);
+
+  S.rocks = []; S.aliens = []; S.alienShots = []; S.bullets = []; S.holes = []; S.bits = [];
+  for (let i=0;i<holeCount;i++) S.holes.push(makeHole());
+  for (let i=0;i<rockCount;i++) S.rocks.push(makeRock(3, undefined, undefined, rockSpeed));
+  S.alienQueue = alienCount;
+  S.alienTimer = Math.max(150, 420 - n*26);
+}
+
+function startLevel(n){
+  S.level = n;
+  levelSetup(n);
+  showBanner('SECTOR ' + String(n).padStart(2,'0'), levelTagline(n));
+  syncHud();
+}
+
+function levelTagline(n){
+  if (n === 1) return 'Debris field';
+  if (n === 2) return 'Gravity well detected';
+  if (n === 3) return 'Hostile contact';
+  if (n === 5) return 'Interceptors inbound';
+  if (n % 5 === 0) return 'Deep void';
+  return pick(['Drift zone','Collapsed lane','Dead channel','Wreck line','Silent sector']);
+}
+
+/* ------------------------------ input ----------------------------------- */
+const keys = Object.create(null);
+const KEYMAP = {
+  ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right',
+  ArrowUp:'thrust', KeyW:'thrust', Space:'fire'
+};
+addEventListener('keydown', e => {
+  /* A modal is open, so a text field probably has focus. Hand every key to
+     the form — preventDefault here would swallow the space bar mid-password,
+     and the game must not fire, pause or restart while someone is typing. */
+  if (S.ui){
+    if (e.key === 'Escape'){ e.preventDefault(); closeAuth(); }
+    else if (e.key === 'Enter' && S.ui === 'auth'){ e.preventDefault(); authSubmit(); }
+    return;
+  }
+  if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+  if (e.repeat) return;
+  const k = KEYMAP[e.code]; if (k) keys[k] = true;
+  if (e.code === 'KeyP') togglePause();
+  if (e.code === 'Space'){
+    if (S.mode === 'title') newGame();
+    else if (S.mode === 'over') newGame();
+  }
+});
+addEventListener('keyup', e => { const k = KEYMAP[e.code]; if (k) keys[k] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+// touch
+const touchLayer = document.getElementById('touch');
+if (matchMedia('(pointer: coarse)').matches){
+  touchLayer.classList.add('show');
+  document.getElementById('startPrompt').textContent = 'Tap to launch';
+  touchLayer.querySelectorAll('.btn').forEach(btn => {
+    const k = btn.dataset.k;
+    const on  = e => { e.preventDefault(); keys[k] = true;  btn.classList.add('on'); };
+    const off = e => { e.preventDefault(); keys[k] = false; btn.classList.remove('on'); };
+    btn.addEventListener('pointerdown', on);
+    btn.addEventListener('pointerup', off);
+    btn.addEventListener('pointercancel', off);
+    btn.addEventListener('pointerleave', off);
+  });
+  /* Bound to #stage, not the canvas: the title and game-over overlays sit on
+     top of the canvas and swallow the tap before it ever reaches it, so the
+     canvas listener this replaces could not fire while either was showing.
+     Taps that land on a control are the control's business, not a launch. */
+  stage.addEventListener('pointerdown', e => {
+    if (S.ui) return;
+    if (e.target.closest('button, input, .btn')) return;
+    if (S.mode === 'title' || S.mode === 'over') newGame();
+  });
+}
+
+function togglePause(){
+  if (S.mode === 'playing'){ S.mode = 'paused'; show('pauseScreen', true); }
+  else if (S.mode === 'paused'){ S.mode = 'playing'; show('pauseScreen', false); }
+}
+
+/* ------------------------------ UI glue --------------------------------- */
+const show = (id, on) => document.getElementById(id).classList.toggle('show', on);
+
+function syncHud(){
+  document.getElementById('score').textContent = String(S.score).padStart(6,'0');
+  document.getElementById('level').textContent = String(S.level).padStart(2,'0');
+  const box = document.getElementById('lives');
+  box.innerHTML = '';
+  for (let i=0;i<S.lives;i++){
+    box.insertAdjacentHTML('beforeend',
+      '<svg width="12" height="15" viewBox="-6 -8 12 16" fill="none" stroke="#fff" stroke-width="1.3">' +
+      '<path d="M0 -7 L5 6 L0 3 L-5 6 Z"/></svg>');
+  }
+}
+
+let bannerTimer = 0;
+function showBanner(n, t){
+  document.getElementById('bannerN').textContent = n;
+  document.getElementById('bannerT').textContent = t;
+  show('banner', true);
+  bannerTimer = 110;
+}
+
+/* =================== pilots, scores and the leaderboard ==================
+   The game never touches localStorage directly — it talks to `Store`. Every
+   method is async even though localStorage is synchronous, and that is the
+   whole point: pointing this at a hosted backend later means writing one more
+   object with the same eight methods and reassigning `Store`, with no change
+   at any call site.
+
+   Be clear about what this does and does not do. Accounts live in THIS
+   browser on THIS machine. Two people on two machines cannot see each other's
+   runs, and TOP TEN means the top ten of everyone who has played here — not
+   a global board. Sharing scores between players needs a server; nothing
+   below pretends otherwise.                                              */
+
+const NAME_RE = /^[A-Za-z0-9_.-]{2,16}$/;
+const MIN_PW  = 6;
+const LS = { users:'sj.users.v1', session:'sj.session.v1' };
+
+// Safari refuses localStorage on file:// origins, so this can genuinely fail.
+let storageOK = false;
+try { localStorage.setItem('sj.probe','1'); localStorage.removeItem('sj.probe'); storageOK = true; }
+catch (e){ storageOK = false; }
+
+// Password hashing needs WebCrypto. It is present over https and, in every
+// current browser, on file:// too. Where it is missing we refuse to create
+// accounts rather than store passwords under a hash that only looks safe.
+const subtle = (typeof crypto !== 'undefined' && crypto.subtle) || null;
+
+function lsGet(k, fb){ try { const s = localStorage.getItem(k); return s ? JSON.parse(s) : fb; } catch(e){ return fb; } }
+function lsSet(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch(e){ return false; } }
+
+const toHex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
+function randBytes(n){ const a = new Uint8Array(n); crypto.getRandomValues(a); return a; }
+
+/* PBKDF2-SHA256. The iteration count is stored per record so it can be raised
+   later without locking anyone out of an account created under the old one. */
+const PBKDF2_ROUNDS = 150000;
+async function derive(secret, saltHex, rounds){
+  const key  = await subtle.importKey('raw', new TextEncoder().encode(secret), 'PBKDF2', false, ['deriveBits']);
+  const salt = Uint8Array.from(saltHex.match(/../g).map(h => parseInt(h,16)));
+  return toHex(await subtle.deriveBits(
+    { name:'PBKDF2', salt, iterations:rounds || PBKDF2_ROUNDS, hash:'SHA-256' }, key, 256));
+}
+function sameHash(a, b){                    // length-independent, no early exit
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let d = 0; for (let i=0;i<a.length;i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+
+// I, O, 0 and 1 are left out — this gets read off a screen and written down.
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function makeRecoveryCode(){
+  const s = [...randBytes(8)].map(b => CODE_CHARS[b % 32]).join('');   // 256 % 32 === 0, so no modulo bias
+  return 'SNGL-' + s.slice(0,4) + '-' + s.slice(4,8);
+}
+const normCode = s => String(s).toUpperCase().replace(/[^A-Z0-9]/g, '');
+const normName = s => String(s).trim();
+const key      = s => normName(s).toLowerCase();
+
+const publicUser = u => ({ name:u.name, best:u.best|0, bestLevel:u.bestLevel|0, plays:u.plays|0 });
+
+const LocalStore = {
+  kind: 'local',
+
+  async ready(){
+    if (!storageOK) return { ok:false, why:'This browser will not store data for a file:// page. Open the game over http(s) to save scores.' };
+    if (!subtle)    return { ok:false, why:'This browser has no WebCrypto, so passwords cannot be stored safely. Guest play still works.' };
+    return { ok:true };
+  },
+
+  async currentUser(){
+    if (!storageOK) return null;
+    const k = lsGet(LS.session, null);
+    if (!k) return null;
+    const u = lsGet(LS.users, {})[k];
+    return u ? publicUser(u) : null;
+  },
+
+  async signUp(name, pw){
+    const r = await this.ready(); if (!r.ok) throw new Error(r.why);
+    name = normName(name);
+    if (!NAME_RE.test(name)) throw new Error('Callsign must be 2-16 characters: letters, digits, . _ -');
+    if (String(pw).length < MIN_PW) throw new Error('Password must be at least ' + MIN_PW + ' characters');
+    const users = lsGet(LS.users, {});
+    if (users[key(name)]) throw new Error('That callsign is taken');
+
+    const code = makeRecoveryCode();
+    const pwSalt = toHex(randBytes(16)), codeSalt = toHex(randBytes(16));
+    const rec = {
+      name, rounds:PBKDF2_ROUNDS,
+      pwSalt,   pwHash:   await derive(pw, pwSalt, PBKDF2_ROUNDS),
+      codeSalt, codeHash: await derive(normCode(code), codeSalt, PBKDF2_ROUNDS),
+      best:0, bestLevel:0, bestAt:0, plays:0, created:Date.now()
+    };
+    users[key(name)] = rec;
+    if (!lsSet(LS.users, users)) throw new Error('Could not save — storage is full or blocked');
+    lsSet(LS.session, key(name));
+    return { user:publicUser(rec), recoveryCode:code };
+  },
+
+  async signIn(name, pw){
+    const r = await this.ready(); if (!r.ok) throw new Error(r.why);
+    const u = lsGet(LS.users, {})[key(name)];
+    // Same message either way, so this cannot be used to enumerate callsigns.
+    const bad = new Error('Callsign or password is wrong');
+    if (!u) throw bad;
+    if (!sameHash(await derive(pw, u.pwSalt, u.rounds), u.pwHash)) throw bad;
+    lsSet(LS.session, key(name));
+    return publicUser(u);
+  },
+
+  async signOut(){ if (storageOK) localStorage.removeItem(LS.session); },
+
+  async resetPassword(name, code, newPw){
+    const r = await this.ready(); if (!r.ok) throw new Error(r.why);
+    if (String(newPw).length < MIN_PW) throw new Error('Password must be at least ' + MIN_PW + ' characters');
+    const users = lsGet(LS.users, {});
+    const u = users[key(name)];
+    const bad = new Error('Callsign or recovery code is wrong');
+    if (!u || !u.codeHash) throw bad;
+    if (!sameHash(await derive(normCode(code), u.codeSalt, u.rounds), u.codeHash)) throw bad;
+    u.pwSalt = toHex(randBytes(16));
+    u.rounds = PBKDF2_ROUNDS;
+    u.pwHash = await derive(newPw, u.pwSalt, u.rounds);
+    if (!lsSet(LS.users, users)) throw new Error('Could not save — storage is full or blocked');
+    lsSet(LS.session, key(name));
+    return publicUser(u);
+  },
+
+  /* Returns the pilot's best AFTER this run, and whether this run set it. */
+  async submitScore(score, level){
+    if (!storageOK) return null;
+    const k = lsGet(LS.session, null); if (!k) return null;
+    const users = lsGet(LS.users, {});
+    const u = users[k]; if (!u) return null;
+    u.plays = (u.plays|0) + 1;
+    u.lastPlayed = Date.now();
+    const isRecord = score > (u.best|0);
+    if (isRecord){ u.best = score; u.bestLevel = level; u.bestAt = Date.now(); }
+    lsSet(LS.users, users);
+    return { best:u.best|0, bestLevel:u.bestLevel|0, isRecord };
+  },
+
+  async topTen(){
+    if (!storageOK) return [];
+    return Object.values(lsGet(LS.users, {}))
+      .filter(u => (u.best|0) > 0)
+      .sort((a,b) => (b.best|0) - (a.best|0) || (a.bestAt|0) - (b.bestAt|0))   // earlier run wins a tie
+      .slice(0, 10)
+      .map(u => ({ name:u.name, score:u.best|0, level:u.bestLevel|0 }));
+  }
+};
+
+let Store = LocalStore;
+
+/* ---------------------------- pilot UI glue ----------------------------- */
+let ME = null;        // cached current pilot, null for a guest
+let overGen = 0;      // stops a slow score submit from writing to a stale screen
+
+const pad6 = n => String(n).padStart(6,'0');
+const esc  = s => String(s).replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+async function refreshPilot(){
+  ME = await Store.currentUser();
+  const signedIn = !!ME;
+  document.getElementById('pilotLine').innerHTML = signedIn
+    ? 'Pilot <b>' + esc(ME.name) + '</b><br>Best <b>' + pad6(ME.best) + '</b> &middot; ' +
+      ME.plays + ' run' + (ME.plays === 1 ? '' : 's')
+    : 'Flying as <b>guest</b> &mdash; sign in to record a score';
+  document.getElementById('btnSignIn').hidden  = signedIn;
+  document.getElementById('btnSignUp').hidden  = signedIn;
+  document.getElementById('btnSignOut').hidden = !signedIn;
+  document.getElementById('hudBest').textContent = signedIn ? 'BEST ' + pad6(ME.best) : '';
+
+  const warn = document.getElementById('storageWarn');
+  const r = await Store.ready();
+  warn.hidden = r.ok;
+  if (!r.ok) warn.textContent = r.why;
+}
+
+async function renderBoard(id){
+  const box = document.getElementById(id);
+  const rows = await Store.topTen();
+  const mine = ME ? ME.name.toLowerCase() : null;
+  box.innerHTML = '<div class="hd">Top Ten</div>' + (rows.length
+    ? '<ol>' + rows.map((r, i) =>
+        '<li class="' + (mine && r.name.toLowerCase() === mine ? 'me' : '') + '">' +
+        '<span>' + String(i+1).padStart(2,'0') + '</span>' +
+        '<span class="nm">' + esc(r.name) + '</span>' +
+        '<span class="sc">' + pad6(r.score) + '</span></li>').join('') + '</ol>'
+    : '<div class="empty">No runs recorded</div>');
+}
+
+async function refreshAll(){ await refreshPilot(); await renderBoard('titleBoard'); }
+
+/* ------------------------------ auth screens ---------------------------- */
+/* S.ui holds any modal overlay ('auth' | 'code' | null). While it is set the
+   game ignores every key, so typing a password never fires a weapon. */
+let authMode = 'in';   // in | up | forgot
+
+const $ = id => document.getElementById(id);
+
+function openAuth(mode){
+  authMode = mode;
+  S.ui = 'auth';
+  const up = mode === 'up', forgot = mode === 'forgot';
+  $('authTitle').textContent = up ? 'NEW PILOT' : forgot ? 'RECOVER' : 'SIGN IN';
+  $('authGo').textContent    = up ? 'Create' : forgot ? 'Reset password' : 'Sign in';
+  $('authPwLabel').textContent = forgot ? 'New password' : 'Password';
+  $('authPw').setAttribute('autocomplete', up || forgot ? 'new-password' : 'current-password');
+  $('fieldCode').hidden   = !forgot;
+  $('fieldPw2').hidden    = !(up || forgot);
+  $('authNameHint').hidden = !up;
+  $('authSwap').textContent = up ? 'I already have a callsign' : 'New pilot';
+  $('authForgot').hidden = forgot;
+  $('authErr').textContent = '';
+  for (const f of ['authName','authPw','authPw2','authCode']) $(f).value = '';
+  show('authScreen', true);
+  setTimeout(() => $('authName').focus(), 0);
+}
+
+function closeAuth(){
+  S.ui = null;
+  show('authScreen', false);
+  show('codeScreen', false);
+}
+
+async function authSubmit(){
+  const go = $('authGo'), err = $('authErr');
+  if (go.disabled) return;
+  const name = $('authName').value, pw = $('authPw').value,
+        pw2  = $('authPw2').value,  code = $('authCode').value;
+  err.textContent = '';
+  if ((authMode === 'up' || authMode === 'forgot') && pw !== pw2){
+    err.textContent = 'Passwords do not match'; return;
+  }
+  go.disabled = true;
+  const was = go.textContent;
+  go.textContent = 'Working';                 // PBKDF2 takes a beat; say so
+  try {
+    if (authMode === 'up'){
+      const { user, recoveryCode } = await Store.signUp(name, pw);
+      ME = user;
+      $('codeName').textContent = user.name;
+      $('codeValue').textContent = recoveryCode;
+      $('codeMsg').textContent = '';
+      S.ui = 'code';
+      show('authScreen', false);
+      show('codeScreen', true);
+    } else if (authMode === 'forgot'){
+      await Store.resetPassword(name, code, pw);
+      closeAuth();
+    } else {
+      await Store.signIn(name, pw);
+      closeAuth();
+    }
+    await refreshAll();
+  } catch (e){
+    err.textContent = e.message || 'Something went wrong';
+  } finally {
+    go.disabled = false;
+    go.textContent = was;
+  }
+}
+
+$('btnSignIn').addEventListener('click', () => openAuth('in'));
+$('btnSignUp').addEventListener('click', () => openAuth('up'));
+$('btnSignOut').addEventListener('click', async () => { await Store.signOut(); await refreshAll(); });
+$('authGo').addEventListener('click', authSubmit);
+$('authCancel').addEventListener('click', closeAuth);
+$('authSwap').addEventListener('click', () => openAuth(authMode === 'up' ? 'in' : 'up'));
+$('authForgot').addEventListener('click', () => openAuth('forgot'));
+$('codeDone').addEventListener('click', closeAuth);
+$('codeCopy').addEventListener('click', async () => {
+  const msg = $('codeMsg');
+  try {
+    await navigator.clipboard.writeText($('codeValue').textContent);
+    msg.textContent = 'Copied';
+  } catch (e){
+    msg.textContent = 'Copy blocked — write it down instead';   // clipboard needs a secure context
+  }
+});
+
+function addScore(v){
+  S.score += v;
+  if (S.score >= S.nextLife){ S.lives++; S.nextLife += CONFIG.extraLife; }
+  syncHud();
+}
+
+function newGame(){
+  if (S.ui) return;                       // never launch from behind a modal
+  overGen++;                              // any in-flight score submit is now stale
+  S.score = 0; S.lives = CONFIG.startLives; S.nextLife = CONFIG.extraLife;
+  S.ship = makeShip(); S.respawnTimer = 0; S.shake = 0;
+  show('titleScreen', false); show('overScreen', false); show('pauseScreen', false);
+  startLevel(1);
+  S.mode = 'playing';
+}
+
+function gameOver(){
+  S.mode = 'over';
+  const score = S.score, level = S.level;
+  document.getElementById('finalScore').textContent = pad6(score);
+  document.getElementById('finalLevel').textContent = 'Sector ' + String(level).padStart(2,'0');
+  document.getElementById('overPilot').innerHTML = '';
+  document.getElementById('overBoard').innerHTML = '';
+  show('overScreen', true);
+  recordRun(score, level, ++overGen);     // async; the screen is already up
+}
+
+/* Storing the run is deliberately off the critical path — the game-over
+   screen appears immediately and fills in once the write lands. `gen` guards
+   against a slow write painting over a screen the player has already left. */
+async function recordRun(score, level, gen){
+  try {
+    const res = await Store.submitScore(score, level);
+    if (gen !== overGen) return;
+    const line = document.getElementById('overPilot');
+    if (!res){
+      line.innerHTML = 'Not recorded &mdash; <b>guest</b> run';
+    } else {
+      ME = await Store.currentUser();
+      line.innerHTML = res.isRecord
+        ? '<b>New personal best</b>'
+        : 'Personal best <b>' + pad6(res.best) + '</b>';
+    }
+    if (gen !== overGen) return;
+    await renderBoard('overBoard');
+    if (gen === overGen) await refreshAll();
+  } catch (e){
+    if (gen === overGen) document.getElementById('overPilot').textContent = 'Score could not be saved';
+  }
+}
+
+/* ------------------------------ gravity --------------------------------- */
+// One shared rule: every free body feels every black hole. That's what makes
+// the holes read as part of the world rather than as decorated walls.
+function applyGravity(o, strength = 1){
+  for (const h of S.holes){
+    const [dx, dy] = delta(o.x, o.y, h.x, h.y);
+    const d2 = dx*dx + dy*dy;
+    if (d2 > CONFIG.hole.reach * CONFIG.hole.reach) continue;
+    const d = Math.max(Math.sqrt(d2), CONFIG.hole.core);
+    const f = (CONFIG.hole.pull * strength) / (d*d);
+    o.vx += (dx/d) * f * 0.016;
+    o.vy += (dy/d) * f * 0.016;
+  }
+}
+function swallowed(o){
+  for (const h of S.holes) if (dist(o,h) < CONFIG.hole.core + o.r*0.4) return h;
+  return null;
+}
+
+/* ------------------------------ update ---------------------------------- */
+function update(){
+  S.frame++;
+  if (bannerTimer > 0 && --bannerTimer === 0) show('banner', false);
+  if (S.shake > 0) S.shake *= 0.9;
+
+  for (const h of S.holes) h.spin += h.drift;
+
+  /* --- ship --- */
+  if (S.ship){
+    const sh = S.ship, C = CONFIG.ship;
+    if (keys.left)  sh.a -= C.turn * Math.PI/180;
+    if (keys.right) sh.a += C.turn * Math.PI/180;
+    sh.thrusting = !!keys.thrust;
+    if (sh.thrusting){
+      sh.vx += Math.cos(sh.a) * C.thrust;
+      sh.vy += Math.sin(sh.a) * C.thrust;
+      if (S.frame % 2 === 0){
+        const bx = sh.x - Math.cos(sh.a)*14, by = sh.y - Math.sin(sh.a)*14;
+        S.bits.push({ x:bx, y:by, vx:-Math.cos(sh.a)*1.4+rand(-.3,.3),
+                      vy:-Math.sin(sh.a)*1.4+rand(-.3,.3),
+                      life:10, max:10, len:2, a:sh.a });
+      }
+    }
+    applyGravity(sh);
+    sh.vx *= C.drag; sh.vy *= C.drag;
+    const sp = Math.hypot(sh.vx, sh.vy);
+    if (sp > C.maxSpeed){ sh.vx = sh.vx/sp*C.maxSpeed; sh.vy = sh.vy/sp*C.maxSpeed; }
+    sh.x += sh.vx; sh.y += sh.vy; wrapPos(sh);
+    if (sh.invuln > 0) sh.invuln--;
+    if (sh.cool > 0) sh.cool--;
+
+    if (keys.fire && sh.cool === 0 && S.bullets.length < CONFIG.bullet.max){
+      S.bullets.push({
+        x: sh.x + Math.cos(sh.a)*15, y: sh.y + Math.sin(sh.a)*15,
+        vx: Math.cos(sh.a)*CONFIG.bullet.speed + sh.vx*.4,
+        vy: Math.sin(sh.a)*CONFIG.bullet.speed + sh.vy*.4,
+        life: CONFIG.bullet.life, r: CONFIG.bullet.radius
+      });
+      sh.cool = CONFIG.bullet.cooldown;
+    }
+    if (sh.invuln === 0 && swallowed(sh)) killShip();
+  }
+
+  /* --- bullets (gravity bends them, which is half the fun) --- */
+  for (let i=S.bullets.length-1;i>=0;i--){
+    const b = S.bullets[i];
+    applyGravity(b, 0.75);
+    b.x += b.vx; b.y += b.vy; wrapPos(b);
+    if (--b.life <= 0 || swallowed(b)) S.bullets.splice(i,1);
+  }
+  for (let i=S.alienShots.length-1;i>=0;i--){
+    const b = S.alienShots[i];
+    applyGravity(b, 0.75);
+    b.x += b.vx; b.y += b.vy; wrapPos(b);
+    if (--b.life <= 0 || swallowed(b)) S.alienShots.splice(i,1);
+  }
+
+  /* --- rocks --- */
+  for (let i=S.rocks.length-1;i>=0;i--){
+    const r = S.rocks[i];
+    applyGravity(r, 0.6);
+    r.x += r.vx; r.y += r.vy; r.a += r.spin; wrapPos(r);
+    if (swallowed(r)){ burst(r.x, r.y, 6, 1.4, 20); S.rocks.splice(i,1); }
+  }
+
+  /* --- aliens --- */
+  if (S.alienQueue > 0 && --S.alienTimer <= 0){
+    const kind = (S.level >= 5 && Math.random() < Math.min(.25 + S.level*.05, .7)) ? 'small' : 'big';
+    S.aliens.push(makeAlien(kind));
+    S.alienQueue--;
+    S.alienTimer = Math.max(240, 620 - S.level*30);
+  }
+  for (let i=S.aliens.length-1;i>=0;i--){
+    const al = S.aliens[i], c = CONFIG.alien[al.kind];
+    if (!al.entered && al.x > 0 && al.x < W) al.entered = true;
+    if (--al.turn <= 0){ al.vy = pick([-1,0,1]) * c.speed * .7; al.turn = randi(45,110); }
+    applyGravity(al, 0.5);
+    al.x += al.vx; al.y += al.vy;
+    if (al.entered) wrapPos(al); else if (al.x < -60 || al.x > W+60) { S.aliens.splice(i,1); continue; }
+    al.y = Math.max(20, Math.min(H-20, al.y));
+
+    if (swallowed(al)){ burst(al.x, al.y, 10, 2, 26); S.aliens.splice(i,1); continue; }
+
+    if (--al.cool <= 0 && S.ship && al.entered){
+      al.cool = c.fireRate + randi(-15,15);
+      let ang;
+      if (al.kind === 'small'){                       // aims, with a little slop
+        const [dx,dy] = delta(al.x, al.y, S.ship.x, S.ship.y);
+        ang = Math.atan2(dy,dx) + rand(-.12,.12);
+      } else ang = rand(0,TAU);                       // big ones spray
+      S.alienShots.push({ x:al.x, y:al.y,
+        vx:Math.cos(ang)*CONFIG.alienBullet.speed, vy:Math.sin(ang)*CONFIG.alienBullet.speed,
+        life:CONFIG.alienBullet.life, r:CONFIG.alienBullet.radius });
+    }
+  }
+
+  /* --- particles --- */
+  for (let i=S.bits.length-1;i>=0;i--){
+    const p = S.bits[i];
+    p.x += p.vx; p.y += p.vy; p.vx *= .97; p.vy *= .97; wrapPos(p);
+    if (--p.life <= 0) S.bits.splice(i,1);
+  }
+
+  collisions();
+
+  /* --- respawn / level end --- */
+  if (!S.ship && S.mode === 'playing'){
+    if (--S.respawnTimer <= 0){
+      const spot = findSpawnSpot();
+      // After 4s of no safe spot, take the centre anyway rather than stall.
+      if (spot) S.ship = makeShip(spot);
+      else if (S.respawnTimer < -240) S.ship = makeShip();
+    }
+  }
+  if (S.mode === 'playing' && S.rocks.length === 0 && S.aliens.length === 0 && S.alienQueue === 0){
+    startLevel(S.level + 1);
+  }
+}
+
+function collisions(){
+  const sh = S.ship;
+
+  // player shots -> rocks
+  for (let i=S.bullets.length-1;i>=0;i--){
+    const b = S.bullets[i];
+    let done = false;
+    for (let j=S.rocks.length-1;j>=0;j--){
+      if (hit(b, S.rocks[j])){ splitRock(j); S.bullets.splice(i,1); done = true; break; }
+    }
+    if (done) continue;
+    for (let j=S.aliens.length-1;j>=0;j--){
+      if (hit(b, S.aliens[j])){
+        const al = S.aliens[j];
+        addScore(CONFIG.alien[al.kind].score);
+        burst(al.x, al.y, 18, 3.2, 34);
+        S.shake = 8; S.aliens.splice(j,1); S.bullets.splice(i,1);
+        break;
+      }
+    }
+  }
+
+  if (!sh || sh.invuln > 0) return;
+
+  for (const r of S.rocks)      if (hit(sh, r)) return killShip();
+  for (const a of S.aliens)     if (hit(sh, a)) return killShip();
+  for (let i=S.alienShots.length-1;i>=0;i--){
+    if (hit(sh, S.alienShots[i])){ S.alienShots.splice(i,1); return killShip(); }
+  }
+}
+
+function splitRock(idx){
+  const r = S.rocks[idx];
+  addScore(CONFIG.rock.score[r.size]);
+  burst(r.x, r.y, r.size*6, 2.4, 30);
+  S.shake = 3 + r.size*1.5;
+  S.rocks.splice(idx,1);
+  if (r.size > 1){
+    const speed = 1 + (S.level-1)*0.12;
+    for (let i=0;i<2;i++){
+      const child = makeRock(r.size-1, r.x, r.y, speed*1.25);
+      child.vx += r.vx*.4; child.vy += r.vy*.4;
+      S.rocks.push(child);
+    }
+  }
+}
+
+function killShip(){
+  const sh = S.ship;
+  burst(sh.x, sh.y, 26, 3.4, 46);
+  S.shake = 14;
+  S.ship = null;
+  S.lives--;
+  syncHud();
+  if (S.lives <= 0) gameOver();
+  else S.respawnTimer = 90;
+}
+
+/* ------------------------------ render ---------------------------------- */
+function stroke(width, alpha){
+  ctx.lineWidth = width; ctx.strokeStyle = alpha < 1 ? `rgba(255,255,255,${alpha})` : '#fff';
+}
+
+function draw(){
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0,0,W,H);
+
+  if (S.shake > .4 && !reduceMotion){
+    ctx.translate(rand(-S.shake,S.shake), rand(-S.shake,S.shake));
+  }
+
+  drawStars();
+  for (const h of S.holes) drawHole(h);
+  for (const r of S.rocks) drawWrapped(r, () => drawRock(r));
+  for (const a of S.aliens) drawWrapped(a, () => drawAlien(a));
+  drawShots();
+  for (const p of S.bits) drawBit(p);
+  if (S.ship) drawWrapped(S.ship, () => drawShip(S.ship));
+}
+
+// Stars bend around the holes — a cheap lensing approximation that sells the
+// idea that space itself is deformed, not just that there's a hazard circle.
+function drawStars(){
+  for (const s of S.stars){
+    let x = s.x, y = s.y, br = s.z;
+    for (const h of S.holes){
+      const dx = x - h.x, dy = y - h.y, d = Math.hypot(dx,dy);
+      if (d < CONFIG.hole.reach && d > 0.01){
+        const pull = (1 - d/CONFIG.hole.reach);
+        const shift = pull * pull * 46;
+        x += (dx/d) * shift; y += (dy/d) * shift;
+        br *= Math.max(0, 1 - pull*1.35);
+      }
+    }
+    if (br <= 0.02) continue;
+    ctx.fillStyle = `rgba(255,255,255,${br*0.55})`;
+    ctx.fillRect(x, y, s.z > .75 ? 2 : 1, s.z > .75 ? 2 : 1);
+  }
+}
+
+function drawHole(h){
+  // event horizon: a hard black disc that erases the starfield behind it
+  ctx.beginPath(); ctx.arc(h.x, h.y, CONFIG.hole.core*1.05, 0, TAU);
+  ctx.fillStyle = '#000'; ctx.fill();
+
+  // accretion arcs, counter-rotating
+  for (let i=0;i<3;i++){
+    const rr = CONFIG.hole.core + 5 + i*7;
+    const a0 = h.spin * (i%2 ? -1.7 : 1.3) + i*1.1;
+    stroke(1.3, .85 - i*.22);
+    ctx.beginPath(); ctx.arc(h.x, h.y, rr, a0, a0 + 2.1 + i*.35); ctx.stroke();
+    ctx.beginPath(); ctx.arc(h.x, h.y, rr, a0+Math.PI, a0 + Math.PI + 1.3); ctx.stroke();
+  }
+  // horizon rim
+  stroke(1.6, 1);
+  ctx.beginPath(); ctx.arc(h.x, h.y, CONFIG.hole.core, 0, TAU); ctx.stroke();
+
+  // faint outer boundary of influence
+  stroke(1, .07);
+  ctx.setLineDash([4, 12]);
+  ctx.beginPath(); ctx.arc(h.x, h.y, CONFIG.hole.reach, 0, TAU); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawRock(r){
+  ctx.rotate(r.a);
+  stroke(1.5, 1);
+  ctx.beginPath();
+  const n = r.pts.length;
+  for (let i=0;i<n;i++){
+    const ang = (i/n)*TAU, rad = r.r * r.pts[i];
+    const x = Math.cos(ang)*rad, y = Math.sin(ang)*rad;
+    i ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
+  }
+  ctx.closePath(); ctx.stroke();
+}
+
+function drawShip(sh){
+  if (sh.invuln > 0 && Math.floor(sh.invuln/4) % 2 === 0) return;
+  ctx.rotate(sh.a);
+  stroke(1.6, 1);
+  ctx.beginPath();
+  ctx.moveTo(16, 0); ctx.lineTo(-11, 9); ctx.lineTo(-6, 0); ctx.lineTo(-11, -9);
+  ctx.closePath(); ctx.stroke();
+  if (sh.thrusting && S.frame % 3 !== 0){
+    ctx.beginPath();
+    ctx.moveTo(-7, 4.5); ctx.lineTo(-16 - rand(0,6), 0); ctx.lineTo(-7, -4.5);
+    ctx.stroke();
+  }
+}
+
+function drawAlien(al){
+  stroke(1.5, 1);
+  const s = al.kind === 'small' ? .68 : 1;
+  ctx.scale(s, s);
+  ctx.beginPath();                       // hull
+  ctx.moveTo(-18, 0); ctx.lineTo(-8, 7); ctx.lineTo(8, 7); ctx.lineTo(18, 0);
+  ctx.lineTo(8, -7); ctx.lineTo(-8, -7); ctx.closePath(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-18, 0); ctx.lineTo(18, 0); ctx.stroke();
+  ctx.beginPath();                       // dome
+  ctx.moveTo(-8, -7); ctx.lineTo(-4, -14); ctx.lineTo(4, -14); ctx.lineTo(8, -7);
+  ctx.stroke();
+}
+
+function drawShots(){
+  for (const b of S.bullets) drawWrapped(b, () => {
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(0, 0, 2, 0, TAU); ctx.fill();
+  });
+  for (const b of S.alienShots) drawWrapped(b, () => {   // enemy fire reads as a dash, not a dot
+    stroke(1.4, .95);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-b.vx*1.6, -b.vy*1.6);
+    ctx.stroke();
+  });
+}
+
+function drawBit(p){
+  const a = Math.max(0, p.life / p.max);
+  drawWrapped(p, () => {
+    stroke(1.2, a);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-Math.cos(p.a)*p.len, -Math.sin(p.a)*p.len);
+    ctx.stroke();
+  });
+}
+
+/* ------------------------------ title demo ------------------------------ */
+function idleScene(){
+  if (S.rocks.length === 0){
+    for (let i=0;i<5;i++) S.rocks.push(makeRock(3, undefined, undefined, .9));
+    if (S.holes.length === 0) S.holes.push(makeHole());
+  }
+  for (const h of S.holes) h.spin += h.drift;
+  for (const r of S.rocks){
+    applyGravity(r, .6);
+    r.x += r.vx; r.y += r.vy; r.a += r.spin; wrapPos(r);
+  }
+  for (let i=S.rocks.length-1;i>=0;i--) if (swallowed(S.rocks[i])) S.rocks.splice(i,1);
+}
+
+/* ------------------------------ main loop -------------------------------
+   Fixed timestep. The simulation only ever advances in 1/60s ticks, so a
+   144Hz monitor plays exactly like a 60Hz one — every speed, cooldown and
+   lifetime in CONFIG is measured in ticks and means the same thing on any
+   machine. Drawing still happens once per animation frame.
+   MAX_CATCHUP stops the "spiral of death" after a stall (backgrounded tab,
+   dragged window): we drop the missed time rather than trying to replay it. */
+const TICK = 1000 / 60;
+const MAX_CATCHUP = 5;
+let lastTime = 0, accumulator = 0;
+
+function step(){
+  if (S.mode === 'playing') update();
+  else if (S.mode === 'title') idleScene();
+  else if (S.mode === 'over'){
+    for (let i=S.bits.length-1;i>=0;i--){
+      const p = S.bits[i];
+      p.x += p.vx; p.y += p.vy; p.vx *= .97; p.vy *= .97; wrapPos(p);
+      if (--p.life <= 0) S.bits.splice(i,1);
+    }
+  }
+}
+
+function loop(now){
+  requestAnimationFrame(loop);
+  if (!lastTime) lastTime = now;
+  accumulator += Math.min(now - lastTime, TICK * MAX_CATCHUP);
+  lastTime = now;
+  let ticks = 0;
+  while (accumulator >= TICK && ticks < MAX_CATCHUP){ step(); accumulator -= TICK; ticks++; }
+  draw();
+}
+
+resize();
+makeStars();
+syncHud();
+refreshAll();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
