@@ -236,14 +236,26 @@ section('deliberate distance from the 1979 arcade original');
   ok('clearing one large rock fully is worth more than chipping at it',
      C.rock.score[3] + 2 * C.rock.score[2] + 4 * C.rock.score[1] > 4 * C.rock.score[3]);
   ok('a small saucer still beats a large one', C.alien.small.score > C.alien.big.score);
+  ok('the small saucer is the smaller target', C.alien.small.r < C.alien.big.r);
+  // drawAlien derives its scale from these, so a mismatch would silently make
+  // the drawing and the hitbox disagree.
+  ok('saucer radii are large enough to read on a phone', C.alien.big.r >= 26);
 
   const fs = require('fs'), path = require('path');
   const html = fs.readFileSync(path.join(__dirname, '..', 'singularity.html'), 'utf8');
   const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
   ok('the game does not define itself by the original in user-facing copy',
      !/^A monochrome vector arcade shooter\. Asteroids,/m.test(readme));
-  ok('the alien is a tall hull, not the wide domed saucer',
-     /ctx\.moveTo\(0, -13\); ctx\.lineTo\(10, -4\.5\)/.test(html));
+  // A domed disc is generic UFO iconography and belongs to nobody. The 1979
+  // game's SPECIFIC rendering does not: a flat hexagon hull with a horizontal
+  // line through it and a trapezoid dome. Ours is elliptical, has a keel, and
+  // carries no equatorial line.
+  ok('the saucer is drawn as ellipses, not as a hexagon',
+     /ctx\.ellipse\(0, 0, 28, 7/.test(html));
+  ok('the saucer has a keel underneath, not just a dome',
+     /ctx\.ellipse\(0, 1, 16, 9, 0, 0, Math\.PI\)/.test(html));
+  ok('the saucer has no line straight through its middle',
+     !/ctx\.moveTo\(-18, 0\); ctx\.lineTo\(18, 0\)/.test(html));
   ok('the ship is a swept wing, not the arcade triangle',
      /ctx\.moveTo\(11, 0\);\s*\/\/ nose/.test(html) && !/ctx\.moveTo\(16, 0\); ctx\.lineTo\(-11, 9\)/.test(html));
 }
@@ -290,6 +302,11 @@ section('sound');
      A.audio.filter(x => x === 'osc:start').length >= 2 &&
      A.audio.filter(x => x === 'src:start').length >= 3,
      A.audio.join(','));
+  ok('the ship explosion is two staggered detonations, not one',
+     A.audio.filter(x => x.endsWith(':start')).length >= 6,
+     A.audio.filter(x => x.endsWith(':start')).length + ' voices');
+  ok('a soft-clipper exists for the driven layers',
+     A.sandbox._audioCtx && typeof A.sandbox._audioCtx.createWaveShaper === 'function');
   A.audio.length = 0; SFX.shipDeath();
   const deathVoices = A.audio.filter(x => x.endsWith(':start')).length;
   A.audio.length = 0; SFX.rockBoom(3);

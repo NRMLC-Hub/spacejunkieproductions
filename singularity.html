@@ -342,8 +342,11 @@ const CONFIG = {
      was transcription rather than convergence. extraLife sits at 12,000 so
      the pacing lands where 10,000 did under the old, lower totals. */
   rock:      { sizes:{3:34, 2:21, 1:12}, score:{3:15, 2:45, 1:135} },
-  alien:     { big:{r:19, score:300, fireRate:105, speed:1.15},
-               small:{r:12, score:750, fireRate:70, speed:1.9} },
+  // Saucers are ~50% larger than they were. They read far better on a phone
+  // at that size; the trade is that they are correspondingly easier to hit
+  // AND easier to collide with, so the net difficulty barely moves.
+  alien:     { big:{r:28, score:300, fireRate:105, speed:1.15},
+               small:{r:18, score:750, fireRate:70, speed:1.9} },
   hole:      { core:15, reach:290, pull:2600 },
   invuln:    120,          // frames of respawn immunity
   extraLife: 12000,        // bonus hull every N points
@@ -577,6 +580,7 @@ const SFX = (() => {
   let thrustSrc = null, thrustGain = null;
   let ufoOsc = null, ufoLfo = null, ufoGain = null;
   let droneOsc = null, droneFilt = null, droneGain = null;
+  let shaper = null;   // shared soft-clipper; `drive:true` routes through it
 
   /* Called on every gesture. Browsers will not let a page make noise before
      one, and iOS additionally suspends the context when the tab is hidden, so
@@ -590,6 +594,20 @@ const SFX = (() => {
     master = ctx.createGain();
     master.gain.value = muted ? 0 : 0.32;
     master.connect(ctx.destination);
+
+    /* A tanh soft-clipper. Real explosions are distorted — the harmonics that
+       adds are what separates a bang from a clean synthesised thump. Anything
+       with `drive:true` goes through here instead of straight to master. It
+       feeds master, so muting still cuts it. */
+    shaper = ctx.createWaveShaper();
+    const curve = new Float32Array(1024);
+    for (let i = 0; i < 1024; i++){
+      const x = (i / 1023) * 2 - 1;
+      curve[i] = Math.tanh(x * 2.5);
+    }
+    shaper.curve = curve;
+    shaper.oversample = '4x';
+    shaper.connect(master);
 
     // One second of white noise, reused by every explosion and the thruster.
     const n = Math.floor(ctx.sampleRate);
@@ -619,12 +637,14 @@ const SFX = (() => {
     g.gain.linearRampToValueAtTime(o.gain, t0 + (o.attack || 0.008));
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
     if (o.lp){
-      const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = o.lp;
+      const f = ctx.createBiquadFilter(); f.type = 'lowpass';
+      f.frequency.value = o.lp;
+      if (o.q) f.Q.value = o.q;
       osc.connect(f).connect(g);
     } else {
       osc.connect(g);
     }
-    g.connect(master);
+    g.connect(o.drive ? shaper : master);
     osc.start(t0); osc.stop(t0 + o.dur + 0.03);
   }
 
@@ -638,7 +658,7 @@ const SFX = (() => {
     const g = ctx.createGain();
     g.gain.setValueAtTime(o.gain, t0);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
-    src.connect(f).connect(g).connect(master);
+    src.connect(f).connect(g).connect(o.drive ? shaper : master);
     src.start(t0); src.stop(t0 + o.dur + 0.03);
   }
 
@@ -690,11 +710,22 @@ const SFX = (() => {
                 irregular instead of a clean machine sweep
        This is the biggest sound in the game by some margin. It should be. */
     shipDeath(){
-      noise({ dur:0.10, freq:7000, to:1400, gain:0.45 });                        // crack
-      tone({ freq:170, to:26, dur:0.50, type:'sine',     gain:0.50, lp:600 });   // body
-      tone({ freq:88,  to:20, dur:0.95, type:'triangle', gain:0.26, delay:0.03 }); // sub
-      noise({ dur:1.20, freq:1100, to:55,  gain:0.40 });                         // rumble
-      noise({ dur:0.75, freq:3000, to:180, gain:0.20, delay:0.07 });             // debris
+      // First detonation. Driven through the soft-clipper so the low end has
+      // harmonics rather than being a clean sine thump.
+      noise({ dur:0.13, freq:9000, to:1500, gain:0.50 });                                   // crack
+      tone({ freq:220, to:24, dur:0.60, type:'sine', gain:0.62, lp:520, q:4, drive:true }); // body
+      noise({ dur:1.60, freq:1400, to:45, gain:0.46, drive:true });                         // rumble
+
+      /* Second detonation, a beat later and deeper — the hull letting go
+         after the initial rupture. Two staggered impacts read as an
+         explosion; a single one always reads as a hit. This is what the
+         previous version was missing more than any amount of extra gain. */
+      noise({ dur:0.11, freq:5000, to:900, gain:0.30, delay:0.13 });
+      tone({ freq:120, to:18, dur:1.10, type:'triangle', gain:0.44, lp:400, q:3,
+             delay:0.14, drive:true });
+      noise({ dur:1.10, freq:700, to:38, gain:0.30, delay:0.17, drive:true });
+
+      noise({ dur:0.90, freq:3400, to:200, gain:0.17, delay:0.10 });                        // debris
     },
     extraLife(){ [660, 880, 1320].forEach((f, i) =>
       tone({ freq:f, dur:0.16, type:'square', gain:0.12, delay:i*0.09 })); },
@@ -1568,26 +1599,31 @@ function drawShip(sh){
   }
 }
 
-/* A probe, not a flying saucer. The arcade saucer this replaces was a WIDE
-   hexagon with a dome on top — the single most recognisable silhouette in the
-   genre, and not ours to use. This is the opposite: a TALL hexagon with an
-   inner core and two sensor bars. It stays instantly separable from the ship
-   (a pointed wing) and from a rock (an irregular blob) at any size. */
+/* A saucer, drawn as curves rather than as the arcade original's polygons.
+
+   Where the line is: a domed disc is generic flying-saucer iconography that
+   predates the 1979 game by thirty years and belongs to nobody. What is not
+   ours is that game's SPECIFIC rendering — a flat hexagon hull, a horizontal
+   line straight through it, and a trapezoid dome. So this is elliptical
+   rather than hexagonal, carries a keel underneath as well as a dome above,
+   has no equatorial line, and keeps the faceted core that has been its own
+   identity since the redraw. Same family, different craft.
+
+   Scale is derived from the collision radii, so the drawing and the hitbox
+   cannot drift apart when either is retuned. */
 function drawAlien(al){
   stroke(1.5, 1);
-  const s = al.kind === 'small' ? .68 : 1;
+  const s = al.kind === 'small' ? CONFIG.alien.small.r / CONFIG.alien.big.r : 1;
   ctx.scale(s, s);
-  ctx.beginPath();                       // hull
-  ctx.moveTo(0, -13); ctx.lineTo(10, -4.5); ctx.lineTo(10, 4.5);
-  ctx.lineTo(0, 13); ctx.lineTo(-10, 4.5); ctx.lineTo(-10, -4.5);
+  ctx.beginPath();                                                 // rim
+  ctx.ellipse(0, 0, 28, 7, 0, 0, TAU); ctx.stroke();
+  ctx.beginPath();                                                 // dome
+  ctx.ellipse(0, -1, 13, 13, 0, Math.PI, TAU); ctx.stroke();
+  ctx.beginPath();                                                 // keel
+  ctx.ellipse(0, 1, 16, 9, 0, 0, Math.PI); ctx.stroke();
+  ctx.beginPath();                                                 // core
+  ctx.moveTo(0, -12); ctx.lineTo(5, -6); ctx.lineTo(0, 0); ctx.lineTo(-5, -6);
   ctx.closePath(); ctx.stroke();
-  ctx.beginPath();                       // core
-  ctx.moveTo(0, -5.5); ctx.lineTo(4.5, 0); ctx.lineTo(0, 5.5); ctx.lineTo(-4.5, 0);
-  ctx.closePath(); ctx.stroke();
-  ctx.beginPath();                       // sensor bars
-  ctx.moveTo(-16, 0); ctx.lineTo(-10, 0);
-  ctx.moveTo(10, 0);  ctx.lineTo(16, 0);
-  ctx.stroke();
 }
 
 function drawShots(){

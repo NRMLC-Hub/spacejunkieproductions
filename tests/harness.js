@@ -27,7 +27,7 @@ function harvestIds(html) {
 function makeCtx() {
   const noop = () => {};
   const c = {};
-  for (const k of ['fillRect','beginPath','arc','fill','stroke','moveTo','lineTo',
+  for (const k of ['fillRect','beginPath','arc','ellipse','fill','stroke','moveTo','lineTo',
                    'closePath','save','restore','translate','rotate','scale','setLineDash']) c[k] = noop;
   // Recorded so tests can assert the world-to-screen transform.
   c._transform = null;
@@ -61,6 +61,7 @@ function makeAudioContext(log) {
     resume() { ctx.state = 'running'; return Promise.resolve(); },
     createGain() { const n = base('gain'); n.gain = param(1); return n; },
     createBiquadFilter() { const n = base('filter'); n.frequency = param(350); n.Q = param(1); return n; },
+    createWaveShaper() { const n = base('shaper'); n.curve = null; n.oversample = 'none'; return n; },
     createOscillator() {
       const n = base('osc'); n.frequency = param(440); n.detune = param(0); n.type = 'sine';
       n.start = () => { live++; log.push('osc:start'); };

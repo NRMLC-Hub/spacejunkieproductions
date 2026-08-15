@@ -74,6 +74,26 @@ function paths(name, width) {
     if (/rand\(/.test(sub)) continue;                    // runtime jitter, not previewable
     const seg = sub.split('ctx.stroke()')[0];
     const closed = /closePath/.test(seg);
+
+    // ctx.ellipse(cx, cy, rx, ry, rot, a0, a1) — sampled into a polyline.
+    // Args are evaluated so TAU and Math.PI work, since the game uses both.
+    const ell = /ctx\.ellipse\(([^;]*?)\)\s*;/g;
+    let e;
+    while ((e = ell.exec(seg))) {
+      let a;
+      try { a = new Function('TAU', 'Math', 'return [' + e[1] + ']')(Math.PI * 2, Math); }
+      catch (err) { continue; }
+      const [cx, cy, rx, ry, rot, a0, a1] = a;
+      const span = a1 - a0, steps = Math.max(12, Math.ceil(Math.abs(span) / 0.12));
+      const pts = [];
+      for (let i = 0; i <= steps; i++) {
+        const t = a0 + (span * i) / steps;
+        const x = rx * Math.cos(t), y = ry * Math.sin(t);
+        pts.push([cx + x * Math.cos(rot) - y * Math.sin(rot),
+                  cy + x * Math.sin(rot) + y * Math.cos(rot)]);
+      }
+      out.push({ pts, close: false, w: width });
+    }
     // A moveTo begins a NEW polyline — it does not continue the previous one.
     // Treating it as a continuation draws phantom lines between disjoint
     // strokes, e.g. straight through the alien's core between its two bars.
@@ -130,5 +150,5 @@ const ship  = paths('drawShip', 1.6);
 const alien = paths('drawAlien', 1.5);
 render(ship,  260, 8,   path.join(root, 'preview-ship.png'));
 render(ship,  48,  1.5, path.join(root, 'preview-ship-small.png'));
-render(alien, 260, 8,   path.join(root, 'preview-alien.png'));
-render(alien, 48,  1.5, path.join(root, 'preview-alien-small.png'));
+render(alien, 300, 4.6, path.join(root, 'preview-alien.png'));
+render(alien, 64,  1.0, path.join(root, 'preview-alien-small.png'));
