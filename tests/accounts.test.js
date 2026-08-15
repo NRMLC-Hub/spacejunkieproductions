@@ -221,10 +221,26 @@ section('sound');
   A.audio.length = 0;
   SFX.fire();
   ok('firing makes a sound', A.audio.filter(x => x === 'osc:start').length === 1);
+  ok('the shot has a noise body, not just a tone',
+     A.audio.filter(x => x === 'src:start').length === 1);
   A.audio.length = 0;
   SFX.rockBoom(3);
   ok('an explosion uses both noise and a tone',
      A.audio.includes('src:start') && A.audio.includes('osc:start'));
+
+  // Crack + body + tail. A single noise sweep reads as a whoosh, not a bang.
+  A.audio.length = 0;
+  SFX.shipDeath();
+  ok('the ship explosion is layered, not one sweep',
+     A.audio.filter(x => x === 'osc:start').length >= 2 &&
+     A.audio.filter(x => x === 'src:start').length >= 3,
+     A.audio.join(','));
+  A.audio.length = 0; SFX.shipDeath();
+  const deathVoices = A.audio.filter(x => x.endsWith(':start')).length;
+  A.audio.length = 0; SFX.rockBoom(3);
+  const rockVoices = A.audio.filter(x => x.endsWith(':start')).length;
+  ok('the ship explosion is the biggest sound in the game',
+     deathVoices > rockVoices, deathVoices + ' vs ' + rockVoices);
 
   // Held voices: start once, released once, never doubled.
   A.audio.length = 0;

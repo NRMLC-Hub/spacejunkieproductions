@@ -596,6 +596,9 @@ const SFX = (() => {
     droneOsc.start();
   }
 
+  /* o.lp adds a lowpass. Use it to take the edge off a bright waveform —
+     a square or sawtooth left open sounds thin and tinny through phone
+     speakers, which flatter the 1-4kHz band the most. */
   function tone(o){
     if (!ctx || muted) return;
     const t0 = ctx.currentTime + (o.delay || 0);
@@ -604,9 +607,15 @@ const SFX = (() => {
     osc.frequency.setValueAtTime(o.freq, t0);
     if (o.to) osc.frequency.exponentialRampToValueAtTime(Math.max(1, o.to), t0 + o.dur);
     g.gain.setValueAtTime(0.0001, t0);
-    g.gain.linearRampToValueAtTime(o.gain, t0 + 0.008);
+    g.gain.linearRampToValueAtTime(o.gain, t0 + (o.attack || 0.008));
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
-    osc.connect(g).connect(master);
+    if (o.lp){
+      const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = o.lp;
+      osc.connect(f).connect(g);
+    } else {
+      osc.connect(g);
+    }
+    g.connect(master);
     osc.start(t0); osc.stop(t0 + o.dur + 0.03);
   }
 
@@ -643,7 +652,15 @@ const SFX = (() => {
       return muted;
     },
 
-    fire(){      tone({ freq:900, to:170, dur:0.12, type:'square',   gain:0.15 }); },
+    /* A square wave starting at 900Hz is all odd harmonics landing in the
+       band the ear finds harshest — that is what "tingy" was. Triangle rolls
+       its harmonics off far faster, the sweep starts lower, and a lowpass
+       caps whatever is left. The short noise tick gives it a body so it still
+       reads as a weapon rather than a bloop. */
+    fire(){
+      tone({ freq:380, to:88, dur:0.12, type:'triangle', gain:0.22, lp:1200 });
+      noise({ dur:0.045, freq:700, to:180, gain:0.09 });
+    },
     alienFire(){ tone({ freq:280, to:840, dur:0.16, type:'sawtooth', gain:0.11 }); },
     swallow(){   tone({ freq:520, to:38,  dur:0.60, type:'sine',     gain:0.12 }); },
 
@@ -656,9 +673,19 @@ const SFX = (() => {
       noise({ dur:0.50, freq:2400, to:80, gain:0.34 });
       tone({ freq:210, to:48, dur:0.42, type:'sawtooth', gain:0.13 });
     },
+    /* An explosion is three things, and one noise sweep is only the third —
+       which is why it read as a whoosh. Crack, body, tail:
+         crack  a very short bright transient, the initial rupture
+         body   a low pitch dropping fast, the part you feel rather than hear
+         tail   long filtered noise, in two overlapping layers so the decay is
+                irregular instead of a clean machine sweep
+       This is the biggest sound in the game by some margin. It should be. */
     shipDeath(){
-      noise({ dur:0.95, freq:1700, to:55, gain:0.42 });
-      tone({ freq:250, to:32, dur:0.9, type:'triangle', gain:0.18 });
+      noise({ dur:0.10, freq:7000, to:1400, gain:0.45 });                        // crack
+      tone({ freq:170, to:26, dur:0.50, type:'sine',     gain:0.50, lp:600 });   // body
+      tone({ freq:88,  to:20, dur:0.95, type:'triangle', gain:0.26, delay:0.03 }); // sub
+      noise({ dur:1.20, freq:1100, to:55,  gain:0.40 });                         // rumble
+      noise({ dur:0.75, freq:3000, to:180, gain:0.20, delay:0.07 });             // debris
     },
     extraLife(){ [660, 880, 1320].forEach((f, i) =>
       tone({ freq:f, dur:0.16, type:'square', gain:0.12, delay:i*0.09 })); },
