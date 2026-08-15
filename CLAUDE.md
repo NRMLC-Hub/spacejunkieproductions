@@ -137,9 +137,16 @@ them — no browser needed. See `tools/make-icons.js` for the same technique.
   hit; clearing the field would make it the strategy rather than the panic
   button. It also travels rather than clearing instantly, so you watch it
   reach what you were worried about.
-- **The felt slowness of shooting was FLIGHT TIME, not reload.** Missile
-  speed is the responsiveness dial; `cooldown` barely matters. If it ever
-  feels sluggish again, raise `missile.speed` before touching anything else.
+- **Missiles are SINGULARITY's bullets, verbatim**: speed 7.4, life 62,
+  cooldown 9, max 5, radius 2. Ballistic, gravity bends them, one rock per
+  shot, **no blast radius and no guidance**. A test reads the numbers straight
+  out of `singularity.html` and fails if the two games drift apart — so
+  changing the bullet there means changing it here, on purpose, or the test
+  will say so.
+- Tapping sets the DIRECTION and nothing else. There is no detonation point
+  any more: without a blast radius, arriving at an empty spot would do
+  nothing. `life:62` at `speed:7.4` is a range of about 460 units against
+  rocks arriving from 1008, and **that range limit is most of the difficulty**.
 - **Split children come off slower and wider than the parent.** They used to
   inherit up to 1.2x its speed, so breaking a rock made things worse and the
   split chain was what actually killed you.

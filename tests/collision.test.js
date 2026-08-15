@@ -96,53 +96,73 @@ section('missiles');
   ok('missiles travel outward from Earth', after > before, before + ' -> ' + after);
 }
 
-section('tap to designate an intercept');
+section('tap to aim');
 {
   const G = run({ audio: true, W: 1600, H: 900 });
   launch(G);
   const S = G.get('S'), C = G.get('CONFIG'), step = G.get('step');
   const fire = G.get('launch');
 
-  // No target: ballistic, straight out along the radius, bent by gravity.
-  S.shots.length = 0; S.ship.cool = 0;
-  fire(null);
-  ok('firing with no target gives a ballistic shot', S.shots[0].tx === undefined);
-
-  // With a target: guided, and it carries the designated point with it.
+  /* Tapping sets the DIRECTION and nothing else. There is no detonation point
+     to designate any more: without a blast radius, arriving at an empty spot
+     would do nothing. Missiles are SINGULARITY's bullets exactly. */
   S.shots.length = 0; S.ship.cool = 0;
   S.ship.a = -Math.PI / 2;                       // station directly above Earth
-  fire({ x: 500, y: 700 });                      // designate down and to the left
+  fire({ x: 500, y: 700 });                      // aim down and to the left
   const m = S.shots[0];
-  ok('designating carries the point on the missile', m.tx === 500 && m.ty === 700);
-  ok('and it launches toward the point, not along the radius',
+  ok('a tapped shot carries no designated point', m.tx === undefined);
+  ok('it launches toward where you tapped, not along the radius',
      m.vx < 0 && m.vy > 0, m.vx.toFixed(2) + ',' + m.vy.toFixed(2));
+  ok('it flies at SINGULARITY speed',
+     Math.abs(Math.hypot(m.vx, m.vy) - C.missile.speed) < 1e-9);
+  ok('and carries SINGULARITY range', m.life === C.missile.life);
 
-  // It must actually arrive. A designated intercept that gravity drags off
-  // course would make designating meaningless, so guided shots ignore it.
-  S.rocks.length = 0; S.queue = 0;
-  let ticks = 0;
-  while (S.shots.length && ticks < 400) { step(); ticks++; }
-  ok('a designated shot reaches its point and detonates', ticks < 400, ticks + ' ticks');
+  // Space fires along the radius, which is where the station already faces.
+  S.shots.length = 0; S.ship.cool = 0;
+  fire(null);
+  const straight = S.shots[0];
+  ok('firing with no target goes straight out',
+     Math.abs(Math.atan2(straight.vy, straight.vx) - S.ship.a) < 1e-9);
 
-  // Detonating at the point clears what is there, whatever the flight path.
-  const G2 = run({ audio: true, W: 1600, H: 900 });
-  launch(G2);
-  const S2 = G2.get('S'), mk2 = G2.get('makeRock'), st2 = G2.get('step');
-  S2.rocks.length = 0; S2.queue = 0; S2.shots.length = 0; S2.ship.cool = 0;
-  S2.rocks.push(mk2(1, 1, { x: 1150, y: 450, vx: 0, vy: 0 }));
-  G2.get('launch')({ x: 1150, y: 450 });
-  for (let i = 0; i < 400 && S2.rocks.length; i++) st2();
-  ok('the designated point is where it goes off', S2.rocks.length === 0);
+  // Gravity bends it, exactly as it bends a bullet in the other game.
+  const GB = run({ audio: true, W: 1600, H: 900 });
+  launch(GB);
+  const SB = GB.get('S'), stB = GB.get('step');
+  SB.rocks.length = 0; SB.queue = 99; SB.spawnTimer = 1e9; SB.shots.length = 0;
+  SB.ship.a = -Math.PI / 2; stB(); SB.ship.cool = 0;
+  GB.get('launch')({ x: SB.ship.x + 400, y: SB.ship.y });   // fired flat across Earth
+  const shot = SB.shots[0];
+  const vy0 = shot.vy;
+  for (let i = 0; i < 20; i++) stB();
+  ok('gravity bends a shot in flight', shot.vy > vy0,
+     vy0.toFixed(3) + ' -> ' + shot.vy.toFixed(3));
 
-  // Cooldown and the in-flight cap still apply to designated shots.
+  // Reload and the in-flight cap still apply.
   const G3 = run({ audio: true, W: 1600, H: 900 });
   launch(G3);
-  const S3 = G3.get('S'), C3 = G3.get('CONFIG');
+  const S3 = G3.get('S');
   S3.shots.length = 0; S3.ship.cool = 0;
-  ok('the first designation launches', G3.get('launch')({ x: 900, y: 300 }) === true);
-  ok('a second one inside the cooldown does not',
-     G3.get('launch')({ x: 900, y: 300 }) === false);
+  ok('the first tap fires', G3.get('launch')({ x: 900, y: 300 }) === true);
+  ok('a second inside the reload does not', G3.get('launch')({ x: 900, y: 300 }) === false);
   ok('nothing extra was queued', S3.shots.length === 1);
+}
+
+section('missiles match SINGULARITY exactly');
+{
+  const fs2 = require('fs'), path2 = require('path');
+  const other = fs2.readFileSync(path2.join(__dirname, '..', 'singularity.html'), 'utf8');
+  const b = /bullet:[^{]*{ speed:([0-9.]+), life:([0-9]+), cooldown:([0-9]+), max:([0-9]+), radius:([0-9]+) }/.exec(other);
+  ok('SINGULARITY bullet config is still readable', !!b, String(b));
+  if (b) {
+    const C = run().get('CONFIG').missile;
+    ok('same speed',         +b[1] === C.speed,    b[1] + ' vs ' + C.speed);
+    ok('same range',         +b[2] === C.life,     b[2] + ' vs ' + C.life);
+    ok('same reload',        +b[3] === C.cooldown, b[3] + ' vs ' + C.cooldown);
+    ok('same in-flight cap', +b[4] === C.max,      b[4] + ' vs ' + C.max);
+    ok('same size',          +b[5] === C.r,        b[5] + ' vs ' + C.r);
+    ok('no blast radius at all', C.blast === undefined);
+    ok('no guidance', C.turn === undefined);
+  }
 }
 
 section('pointer input');
@@ -166,9 +186,12 @@ section('pointer input');
     target: { closest: () => null }, preventDefault() {},
   });
   ok('a tap in play designates an intercept', S.shots.length === 1);
-  ok('at the world point under the finger',
-     S.shots[0].tx === 400 && S.shots[0].ty === 400,
-     S.shots[0].tx + ',' + S.shots[0].ty);
+  // Screen pixels converted to world units, and the shot heads that way.
+  const aimed = S.shots[0];
+  const wantA = Math.atan2(400 - S.ship.y, 400 - S.ship.x);
+  ok('aimed at the world point under the finger',
+     Math.abs(Math.atan2(aimed.vy, aimed.vx) - wantA) < 1e-9,
+     Math.atan2(aimed.vy, aimed.vx).toFixed(3) + ' vs ' + wantA.toFixed(3));
 
   // A tap on an orbit control is the control's business, not a launch.
   S.shots.length = 0; S.ship.cool = 0;
@@ -208,15 +231,18 @@ section('rocks fall toward Earth and can be shot');
   for (let i = 0; i < 120; i++) step();
   ok('Earth pulls rocks in', S.rocks.length && Math.hypot(S.rocks[0].x - 800, S.rocks[0].y - 450) < d0);
 
-  // A blast clears everything inside its radius, not just what it touched.
+  /* One shot, one rock. No blast radius any more, so a cluster has to be
+     taken apart a piece at a time — that is most of the new difficulty. */
   const G2 = run({ audio: true, W: 1600, H: 900 });
   launch(G2);
-  const S2 = G2.get('S'), mk2 = G2.get('makeRock');
-  S2.rocks.length = 0;
-  for (const dx of [0, 20, -20, 35]) S2.rocks.push(mk2(1, 1, { x: 800 + dx, y: 200, vx: 0, vy: 0 }));
-  G2.get('detonate')(800, 200);
-  ok('one blast clears a cluster', S2.rocks.length === 0, String(S2.rocks.length));
-  ok('and it scores for every one of them', S2.score >= 4 * G2.get('CONFIG').rock.score[1]);
+  const S2 = G2.get('S'), mk2 = G2.get('makeRock'), st2 = G2.get('step');
+  S2.rocks.length = 0; S2.queue = 99; S2.spawnTimer = 1e9; S2.shots.length = 0;
+  for (const dx of [0, 26, -26]) S2.rocks.push(mk2(1, 1, { x: 900 + dx, y: 450, vx: 0, vy: 0 }));
+  S2.ship.a = 0; S2.ship.orbit = 96; st2(); S2.ship.cool = 0;
+  G2.get('launch')({ x: 900, y: 450 });
+  for (let i = 0; i < 60 && S2.rocks.length === 3; i++) st2();
+  ok('a missile destroys exactly one rock', S2.rocks.length === 2, String(S2.rocks.length));
+  ok('its neighbours survive', S2.rocks.length === 2);
 
   // Big rocks split; the smallest vaporise.
   const G3 = run({ audio: true, W: 1600, H: 900 });
@@ -477,12 +503,12 @@ section('sustained fire is limited by tapping, not by the game');
     step();
   }
   const perSecond = fired / (400 / 60);
-  ok('long-range fire sustains several shots a second', perSecond >= 4,
+  // SINGULARITY's trigger: deliberate rather than a stream. Both the reload
+  // and the in-flight cap bind, and that is the intended feel.
+  ok('fire is deliberate, not a stream', perSecond >= 3 && perSecond <= 7,
      perSecond.toFixed(1) + ' shots/sec');
-  ok('the in-flight cap is generous enough not to be felt', C.missile.max >= 8,
-     String(C.missile.max));
-  ok('and the reload is well under a fifth of a second', C.missile.cooldown <= 8,
-     (C.missile.cooldown / 60).toFixed(2) + 's');
+  ok('the in-flight cap matches the other game', C.missile.max === 5);
+  ok('and so does the reload', C.missile.cooldown === 9);
 }
 
 section('the pulse');

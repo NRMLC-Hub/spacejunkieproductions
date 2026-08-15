@@ -181,15 +181,17 @@ through.
 Your station rides a ring around the planet — left and right move you around
 it, up and down change altitude.
 
-**Tap or click where you want the intercept.** The missile launches from your
-station, steers to that point, and detonates there with a blast radius, so
-placing one shot in front of a cluster is worth far more than picking rocks
-off one at a time. Your orbit position still decides the angle of approach and
-how long the flight takes, so taking station never stops mattering.
+**Tap or click to aim and fire in one gesture.** The shot is SINGULARITY's
+bullet exactly — same speed, same range, same reload, gravity bending it on
+the way — and it destroys one rock. There is no blast radius, so a cluster has
+to be taken apart a piece at a time.
 
-`Space` fires a plain shot straight out along your radius instead. It is the
-keyboard fallback and it is worse on purpose — gravity bends it, and it goes
-where you are pointing rather than where you want it.
+The range is about 460 units and rocks arrive from over a thousand, so you
+cannot reach them until they are well inside the field. That limit is most of
+the difficulty.
+
+`Space` fires straight out along your radius, which is where the station
+already faces.
 
 When something gets past you, the **pulse** is the last resort: a ring that
 expands off Earth and clears what is close in, on a seven-second cooldown. Its
@@ -204,8 +206,8 @@ does not leave — it swings around and comes back at you from a new angle.
 | --- | --- |
 | `←` `→` / `A` `D` | Orbit |
 | `↑` `↓` / `W` `S` | Altitude |
-| Tap / Click | Designate an intercept |
-| `Space` | Launch straight out |
+| Tap / Click | Aim and fire |
+| `Space` | Fire outward |
 | `E` / `Shift` | Pulse |
 | `P` | Pause |
 | `M` | Sound on/off |
@@ -220,7 +222,7 @@ side of the orbit and out of the fight for a moment.
 node tests/collision.test.js
 ```
 
-122 assertions. Alongside the gameplay they pin the things most likely to erode:
+131 assertions. Alongside the gameplay they pin the things most likely to erode:
 that no torus machinery has crept in from SINGULARITY, that the ship never
 leaves its rail, that Earth's impact sound uses no pitched oscillator, and that
 the fixed timestep still holds at 60/144/30Hz.
