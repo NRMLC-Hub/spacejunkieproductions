@@ -313,3 +313,54 @@ everyone may read the top ten.
 - `E:\ncoin` — its own git repo, its own `CLAUDE.md`. Do not work on it from
   here. If the games ever become NCoin's activity layer, connect them through a
   documented API — two projects, one interface.
+
+---
+
+## Session handoff — 2026-08-15
+
+Two games live and deployed at
+https://nrmlc-hub.github.io/spacejunkieproductions/ (a menu; each game also
+loads at its own filename). 324 headless assertions across both suites, all
+passing.
+
+**SINGULARITY** gained pilot accounts, per-pilot bests and a top-ten board;
+PWA install; synthesised audio; spoken sector transmissions; world units that
+normalise a phone to a desktop; and a deliberate separation from the 1979
+arcade original (score table, ship, alien, README wording).
+
+**COLLISION** was built this session, start to finish, from Martin's brief:
+Earth at the centre, a station on an orbital ring, tap to aim and fire.
+
+### What is open
+
+- **No accounts in COLLISION.** It keeps a local best under `cl.best.v1` and
+  nothing more. This is the natural moment to extract the shared `Store` —
+  now that two games exist, the abstraction can be drawn from evidence rather
+  than guessed at. Still no shared `engine.js`, on purpose; see the ground
+  rules.
+- **No shared leaderboard for either game.** Everything is `localStorage`, so
+  two people on two machines cannot see each other's runs. The plan discussed
+  and parked was Supabase free tier reached by plain `fetch()`, which also
+  brings real email password reset and optionally Sign in with Apple/Google.
+  Martin has to create the project; the code side is one more object with the
+  same eight methods as `Store`. **Sign-in options were explicitly parked**,
+  not rejected.
+- **COLLISION difficulty is mid-tune.** Last change made missiles match
+  SINGULARITY exactly (no blast radius), which is a significant increase that
+  Martin has not played yet. If clusters now feel impossible, the pulse
+  cooldown is the first dial — it is the only area effect left.
+- **SINGULARITY plateaus at sector 13.** Every dial caps by then and only rock
+  speed grows after. It is also structurally unfair past sector 110, where
+  rocks move further per tick than their own radius and collision detection
+  starts missing them. Nobody will reach that; it is recorded rather than
+  urgent.
+
+### Tuning lessons that cost real time this session
+
+- **How crowded COLLISION feels is travel time ÷ gap**, not count and not
+  speed. Making rocks slower made it *worse*. Check that number first.
+- **Shooting that feels slow is usually flight time**, not reload.
+- **Patch files from a file, never from a `node -e "..."` shell string.** A
+  lost backslash turned `/s+/` into `/s+/` and silently made a watchdog fire
+  at 2.3 seconds, cutting every voice line off mid-sentence. It cost two
+  wrong fixes before the real cause was found.
